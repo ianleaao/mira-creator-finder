@@ -1,0 +1,18 @@
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Credenciais do Google (service account)
+*service-account*.json
+*credentials*.json
+google-*.json
+
+# Dependências e saídas
+node_modules/
+output/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log

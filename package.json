@@ -1,0 +1,22 @@
+{
+  "name": "mira-creator-finder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema interno da MIRA Safety para encontrar e organizar creators para o programa de afiliados.",
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "check-env": "node src/config.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "apify-client": "^2.25.0",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "googleapis": "^188.0.0"
+  }
+}
