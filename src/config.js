@@ -6,7 +6,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true
 
 // Cada chave e a parte do sistema que depende dela.
 const KEYS = {
-  APIFY_TOKEN: 'busca e coleta no YouTube (Apify)',
+  YOUTUBE_API_KEY: 'busca de canais e coleta de vídeos no YouTube',
+  APIFY_TOKEN: 'TikTok e Instagram via Apify (Fase 7)',
   ANTHROPIC_API_KEY: 'geração de buscas, classificação e mensagens (Claude)',
   MONDAY_TOKEN: 'checagem de duplicidade no Monday',
   MONDAY_BOARD_ID: 'checagem de duplicidade no Monday',
@@ -47,7 +48,20 @@ function requireKey(name) {
   return process.env[name].trim();
 }
 
-module.exports = { KEYS, has, missingKeys, reportKeys, requireKey };
+// Remove de um texto qualquer valor de chave do .env (para mensagens de erro e logs).
+function redact(text) {
+  let out = String(text);
+  for (const name of Object.keys(KEYS)) {
+    const value = process.env[name];
+    if (has(name) && value.trim().length >= 8) {
+      out = out.split(value.trim()).join('***');
+    }
+  }
+  // Por garantia, esconde parâmetros "key=" em URLs.
+  return out.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
+}
+
+module.exports = { KEYS, has, missingKeys, reportKeys, requireKey, redact };
 
 // Permite rodar direto: npm run check-env
 if (require.main === module) {

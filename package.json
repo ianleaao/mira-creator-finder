@@ -10,7 +10,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "check-env": "node src/config.js"
+    "check-env": "node src/config.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

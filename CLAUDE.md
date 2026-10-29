@@ -16,7 +16,8 @@ O processo completo que o sistema automatiza está em `docs/SOP.md`. Leia esse a
 - Backend: Node.js (versão LTS) com Express.
 - Frontend: HTML, CSS e JavaScript puro, servido pelo próprio Express. Sem React, sem build.
 - APIs externas:
-  - Apify (cliente oficial `apify-client`) para busca e coleta de dados.
+  - YouTube Data API v3 (`googleapis`, chave `YOUTUBE_API_KEY`) para busca de canais e coleta de vídeos. Grátis, cota de 10.000 unidades por dia (`search.list` custa 100; `channels.list`, `playlistItems.list` e `videos.list` custam 1 cada, em lotes de até 50).
+  - Apify (cliente oficial `apify-client`) reservado para TikTok e Instagram na Fase 7. Não usar para YouTube.
   - Anthropic (SDK oficial `@anthropic-ai/sdk`) para gerar buscas, classificar creators e escrever mensagens. Use `claude-haiku-5-5` para classificação em volume e `claude-sonnet-5-5` para gerar buscas e mensagens. Confirme os nomes de modelo na documentação antes de usar.
   - Monday (API GraphQL, `https://api.monday.com/v2`) somente leitura.
   - Google Sheets (`googleapis`, service account), leitura da planilha principal e criação de planilhas novas.
@@ -29,6 +30,7 @@ Todas as chaves ficam em `.env` (local) e nas variáveis de ambiente do Render (
 Crie um `.env.example` com:
 
 ```
+YOUTUBE_API_KEY=
 APIFY_TOKEN=
 ANTHROPIC_API_KEY=
 MONDAY_TOKEN=
@@ -54,8 +56,11 @@ mira-creator-finder/
   src/
     pipeline.js          orquestra as etapas de uma Round
     brief.js             transforma tema/brief em queries (Claude)
-    apify/
-      youtube.js         busca de canais e coleta de vídeos
+    cli.js               comando de terminal da Fase 1
+    config.js            leitura do .env, aviso de chaves faltando, redact de segredos
+    claude.js            cliente do Claude (JSON via structured outputs, contagem de custo)
+    youtube.js           busca de canais e coleta de vídeos (YouTube Data API)
+    output.js            CSV (colunas da Saída) e JSON (SOP 17)
     metrics.js           médias, outliers, ratio, atividade
     dedupe.js            normalização e comparação
     sources/
@@ -69,7 +74,10 @@ mira-creator-finder/
     styles.css
     app.js
   output/                CSVs gerados localmente
+  test/                  testes (npm test), sem chamadas a APIs
 ```
+
+Rótulos de métricas na saída ficam em inglês, como no SOP 17: ratio `Good`/`Acceptable`/`Weak`, atividade `Active`/`Attention`/`Inactive`.
 
 ## Fases
 
@@ -80,17 +88,17 @@ Projeto Node, dependências, `.env.example`, `.gitignore`, estrutura de pastas, 
 Comando: `node src/cli.js "Pentagon FORTRESS" --round 25 --target 20 --red-alert`
 
 1. `brief.js`: o Claude gera de 8 a 15 queries a partir do tema, incluindo variações do tema (SOP seção 1 e 3.2). Retornar JSON puro.
-2. `apify/youtube.js`: buscar canais com o Actor `maximedupre/youtube-channel-search-scraper`. Campos de entrada confirmados: `searchTerms` (array), `discoveryMode` (obrigatório: `both`, `videoResults` ou `channelFilter`), `maxTotalResults`, `maxChannelsPerSearchTerm`, `minSubscribers`, `maxSubscribers`, `excludedChannels` (handles, channel IDs ou URLs), `languageHint`, `countryHint`. Meta de candidatos brutos: cerca de 2x o alvo.
-3. Para cada canal, coletar os últimos vídeos longos e Shorts com views e data. Use um Actor de vídeos de canal do YouTube; antes de escolher, consulte a Apify Store e o input schema pela API e me diga qual vai usar e o custo estimado por item.
+2. `youtube.js`: buscar vídeos com `search.list` (`type=video`; em Red Alert com `publishedAfter`/`publishedBefore` da janela) e agrupar por canal. O vídeo encontrado vira candidato a conteúdo-gatilho. Depois `channels.list` para inscritos, descrição e playlist de uploads. Descartar canais abaixo de 10K inscritos (em todas as Rounds) antes de coletar vídeos, para poupar cota. Meta de candidatos brutos: cerca de 2x o alvo.
+3. Para cada canal, coletar os vídeos longos e Shorts com views e data via `playlistItems.list` + `videos.list`. Para separar longos de Shorts, usar as playlists `UULF...` (longos) e `UUSH...` (Shorts), derivadas do channel ID; isso não é documentado oficialmente, então testar e cair para a duração se falhar.
 4. `metrics.js` (SOP seção 6):
-   - Média de vídeos longos: últimos 10, excluindo vídeos com menos de 7 dias e premieres/lives agendadas. Se um único vídeo tiver mais de 5x a mediana, excluir e anotar o viral em Notes.
+   - Média de vídeos longos: os 10 mais recentes depois de pular vídeos com menos de 7 dias e premieres/lives agendadas (decisão do Ian: pular primeiro, depois pegar 10). Se um único vídeo tiver mais de 5x a mediana, excluir e anotar o viral em Notes.
    - Média de Shorts: mesma lógica com os últimos 10. Sem Shorts: `No Shorts`.
    - Ratio views/inscritos: Boa (10% ou mais), Aceitável (3% a 10%), Fraca (menos de 3%).
    - Atividade pelo último upload: Ativo (até 30 dias), Atenção (30 a 90), Inativo (mais de 90).
    - Formatar números como `12K`, `1.2M`. Aceitar views tanto numéricas quanto em texto ("12 thousand views", "12K views").
 5. Salvar CSV em `output/round-XX-tema-AAAA-MM-DD.csv` com as colunas da seção "Saída".
 
-Testar com um limite baixo (10 canais) para controlar custo. Mostrar no terminal o custo da execução no Apify.
+Testar com um limite baixo (10 canais) primeiro. Mostrar no terminal as unidades de cota do YouTube gastas e o número de chamadas ao Claude.
 
 ### Fase 2: filtros e status
 1. Pré-filtro (SOP seção 4) e reprovação automática (SOP 8.1). Regras numéricas em código; julgamentos (é mídia ou loja? risco de marca? tem ligação com o tema? o conteúdo-gatilho é sobre o tema?) com o Claude, lendo títulos e descrições reais coletados. O Claude deve responder em JSON com `status`, `why` e `confidence`.
@@ -102,7 +110,7 @@ Testar com um limite baixo (10 canais) para controlar custo. Mostrar no terminal
 1. Antes da busca, montar a lista de exclusão (SOP seção 2) lendo:
    - Monday board `MONDAY_BOARD_ID`, todos os grupos, com paginação via `items_page` e `cursor`.
    - Planilha principal inteira (todas as Rounds e todos os estagiários).
-2. Passar handles e URLs conhecidos para `excludedChannels`.
+2. Descartar canais da lista de exclusão logo depois da busca, antes de coletar vídeos (poupa cota do YouTube).
 3. Depois da coleta, checar cada candidato de novo (SOP seção 7) com normalização: minúsculas; remover `@`, espaços, pontuação, "the", "official", "tv", "channel"; trocar `&` por `and`; comparar também por URL e channel ID. Considerar match por "começa com" para nomes com sufixos como "(see notes)".
 4. Preencher `Duplicate Check` com os textos exatos do SOP 7.5.
 5. Me pergunte quais colunas do Monday guardam link e handle antes de implementar. Liste as colunas do board pela API para eu escolher.
@@ -129,6 +137,8 @@ TikTok, Instagram e buscas web (`site:substack.com`, `site:rumble.com`) para Rou
 
 Name of Account, Status, Why, Supervisor Feedback, Niche, Duplicate Check, Trigger Content (title + link + date), Instagram, Instagram Followers, TikTok, TikTok Followers, YouTube, YouTube Subscribers, Avg Video Views, Avg Shorts Views, Views/Subs Ratio, Activity, Last Upload, Email, YouTube Business Email, Website, Other Links, Best Contact Method, Specific Message, Additional Notes.
 
+Decisão do Ian: usar estas colunas em vez da coluna "YouTube Views (last 28 days)" do SOP 9.1, porque esse dado depende do Social Blade.
+
 Internamente, cada creator segue o formato JSON do SOP seção 17.
 
 ## Regras que o sistema nunca pode quebrar
@@ -144,4 +154,4 @@ Internamente, cada creator segue o formato JSON do SOP seção 17.
 
 ## Custos
 
-Sempre que for usar um Actor novo, me diga o preço por item e estime o custo de uma Round de 50 candidatos antes de rodar. Registrar no fim de cada execução o custo do Apify e o número de chamadas ao Claude.
+Sempre que for usar um Actor novo, me diga o preço por item e estime o custo de uma Round de 50 candidatos antes de rodar. Registrar no fim de cada execução as unidades de cota do YouTube gastas, o custo do Apify (quando usado) e o número de chamadas ao Claude.
