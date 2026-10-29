@@ -2,7 +2,12 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { buildCreator, extractContact } = require('../src/pipeline');
-const { toRow, toCsv, slugify } = require('../src/output');
+const { toCsv } = require('../src/output');
+const { COLUMNS, toRow } = require('../src/sheet-template');
+const { slugify } = require('../src/round');
+
+// Linha do template como objeto { coluna: valor }, para os testes lerem por nome.
+const rowOf = (c) => Object.fromEntries(toRow(c).map((v, i) => [COLUMNS[i].header, v]));
 const { cleanQueries } = require('../src/brief');
 const { durationSeconds } = require('../src/youtube');
 
@@ -39,7 +44,7 @@ test('buildCreator calcula métricas e preenche o formato do SOP 17', () => {
   assert.strictEqual(c.contact.best_method, 'Email');
   assert.strictEqual(c.real_first_name.value, null);
 
-  const row = toRow(c);
+  const row = rowOf(c);
   assert.strictEqual(row['YouTube'], 'https://www.youtube.com/@prepperdawg');
   assert.strictEqual(row['YouTube Subscribers'], '50K');
   assert.strictEqual(row['Avg Video Views'], '6K');
@@ -62,7 +67,7 @@ test('extractContact só usa e-mail de vídeos quando ele se repete', () => {
 test('canal com inscritos ocultos fica Not verified', () => {
   const hidden = { ...channel, subscribers: null, subscribersHidden: true };
   const collected = { longVideos: [video(1, 500)], shortVideos: [], lastUpload: daysAgo(9), shortsSource: 'playlist' };
-  const row = toRow(buildCreator({ round: 1, channel: hidden, collected, matches: [], now: NOW }));
+  const row = rowOf(buildCreator({ round: 1, channel: hidden, collected, matches: [], now: NOW }));
   assert.strictEqual(row['YouTube Subscribers'], 'Not verified');
   assert.strictEqual(row['Views/Subs Ratio'], 'Not verified');
 });

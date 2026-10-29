@@ -1,7 +1,7 @@
 // Testes das regras de aprovação (sem chamar o Claude).
 const test = require('node:test');
 const assert = require('node:assert');
-const { applyRules, combine, sortCreators, buildPrompt, removeDashes } = require('../src/classify');
+const { applyRules, combine, sortCreators, removeDashes, validateJudgment, applyJudgments } = require('../src/classify');
 
 // Creator de exemplo que passa em todas as regras.
 function creator(overrides = {}) {
@@ -98,15 +98,33 @@ test('ordenação: Approved, Maybe, Not approved', () => {
   assert.deepStrictEqual(sortCreators(list).map((c) => c.name), ['A', 'B', 'C']);
 });
 
-test('prompt separa dados do canal como não confiáveis', () => {
-  const c = creator();
-  const prompt = buildPrompt(c, CTX, applyRules(c, CTX));
-  assert.match(prompt, /<channel_data>[\s\S]*Prepping for families[\s\S]*<\/channel_data>/);
-  assert.match(prompt, /0\. "Pentagon FORTRESS explained" \(2026-10-15\)/);
-});
 
 test('removeDashes troca travessão por vírgula e mantém hífen', () => {
   const emDash = String.fromCharCode(0x2014);
   assert.strictEqual(removeDashes(`Strong fit ${emDash} great trigger`), 'Strong fit, great trigger');
   assert.strictEqual(removeDashes('off-grid prepper'), 'off-grid prepper');
+});
+
+test('validateJudgment aponta campos errados', () => {
+  assert.deepStrictEqual(validateJudgment(judgment()), []);
+  const errors = validateJudgment(judgment({ status: 'Aprovado', trigger_index: '0', brand_risk: 'no' }));
+  assert.strictEqual(errors.length, 3);
+  assert.ok(validateJudgment(judgment({ why: '  ' })).includes('why está vazio'));
+  assert.deepStrictEqual(validateJudgment(null), ['não é um objeto']);
+});
+
+test('applyJudgments lista canais sem julgamento e ignora reprovados por regra', () => {
+  const ok = creator();
+  ok.platforms.youtube.channel_id = 'UCok';
+  const small = creator();
+  small.platforms = { ...small.platforms, youtube: { ...small.platforms.youtube, channel_id: 'UCsmall', subscribers: 3000 } };
+  const missing = creator();
+  missing.platforms.youtube.channel_id = 'UCmissing';
+
+  const result = applyJudgments([ok, small, missing], { UCok: judgment() }, CTX);
+  assert.deepStrictEqual(result.missing.map((m) => m.channelId), ['UCmissing']);
+  assert.strictEqual(ok.status, 'Approved');
+  assert.strictEqual(ok.trigger_content.title, 'Pentagon FORTRESS explained');
+  assert.strictEqual(small.status, 'Not approved');
+  assert.match(small.why, /Too small/);
 });

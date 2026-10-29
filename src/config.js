@@ -1,20 +1,26 @@
-// Carrega o .env e informa quais chaves estão faltando.
+// Carrega o .env e informa quais chaves e arquivos estão faltando.
 // Nunca imprime o valor de nenhuma chave, só o nome.
 
+const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
+
+const ROOT = path.join(__dirname, '..');
+require('dotenv').config({ path: path.join(ROOT, '.env'), quiet: true });
 
 // Cada chave e a parte do sistema que depende dela.
 const KEYS = {
   YOUTUBE_API_KEY: 'busca de canais e coleta de vídeos no YouTube',
   APIFY_TOKEN: 'TikTok e Instagram via Apify (Fase 7)',
-  ANTHROPIC_API_KEY: 'geração de buscas, classificação e mensagens (Claude)',
   MONDAY_TOKEN: 'checagem de duplicidade no Monday',
   MONDAY_BOARD_ID: 'checagem de duplicidade no Monday',
-  GOOGLE_SERVICE_ACCOUNT_JSON: 'leitura da planilha principal e criação de planilhas',
   MAIN_SHEET_ID: 'checagem de duplicidade na planilha principal',
-  OUTPUT_FOLDER_ID: 'pasta das planilhas de saída no Google Drive',
-  APP_PASSWORD: 'senha de acesso da interface web',
+  APP_PASSWORD: 'senha de acesso da interface web (Fase 4)',
+};
+
+// Arquivos locais (fora do git) e a parte do sistema que depende deles.
+const FILES = {
+  'google-oauth-client.json': 'login no Google (planilha principal e Drive)',
+  'token.json': 'login no Google já feito (rode npm run google-auth)',
 };
 
 function has(name) {
@@ -22,20 +28,29 @@ function has(name) {
   return typeof value === 'string' && value.trim() !== '';
 }
 
+function hasFile(name) {
+  return fs.existsSync(path.join(ROOT, name));
+}
+
 function missingKeys() {
   return Object.keys(KEYS).filter((name) => !has(name));
 }
 
-// Mostra no terminal um resumo das chaves: "ok" ou "faltando".
+// Mostra no terminal o que está faltando.
 function reportKeys() {
   const missing = missingKeys();
-  if (missing.length === 0) {
-    console.log('Todas as chaves do .env estão configuradas.');
+  const missingFiles = Object.keys(FILES).filter((name) => !hasFile(name));
+  if (missing.length === 0 && missingFiles.length === 0) {
+    console.log('Todas as chaves e arquivos estão configurados.');
     return missing;
   }
-  console.log('Chaves faltando no .env (o sistema segue funcionando sem estas partes):');
-  for (const name of missing) {
-    console.log(`  - ${name}: afeta ${KEYS[name]}`);
+  if (missing.length) {
+    console.log('Chaves faltando no .env (o sistema segue funcionando sem estas partes):');
+    for (const name of missing) console.log(`  - ${name}: afeta ${KEYS[name]}`);
+  }
+  if (missingFiles.length) {
+    console.log('Arquivos faltando na pasta do projeto:');
+    for (const name of missingFiles) console.log(`  - ${name}: afeta ${FILES[name]}`);
   }
   return missing;
 }
@@ -43,7 +58,10 @@ function reportKeys() {
 // Para etapas que não funcionam sem a chave: lança um erro claro com o nome dela.
 function requireKey(name) {
   if (!has(name)) {
-    throw new Error(`Chave ${name} não configurada no .env. Necessária para ${KEYS[name] || 'esta etapa'}.`);
+    throw Object.assign(
+      new Error(`Chave ${name} não configurada no .env. Necessária para ${KEYS[name] || 'esta etapa'}.`),
+      { fatal: true },
+    );
   }
   return process.env[name].trim();
 }
@@ -57,11 +75,13 @@ function redact(text) {
       out = out.split(value.trim()).join('***');
     }
   }
-  // Por garantia, esconde parâmetros "key=" em URLs.
-  return out.replace(/([?&]key=)[^&\s"']+/gi, '$1***');
+  // Por garantia, esconde parâmetros "key=" em URLs e tokens OAuth.
+  return out
+    .replace(/([?&](?:key|access_token|code)=)[^&\s"']+/gi, '$1***')
+    .replace(/(ya29\.)[\w-]+/g, '$1***');
 }
 
-module.exports = { KEYS, has, missingKeys, reportKeys, requireKey, redact };
+module.exports = { ROOT, KEYS, FILES, has, hasFile, missingKeys, reportKeys, requireKey, redact };
 
 // Permite rodar direto: npm run check-env
 if (require.main === module) {

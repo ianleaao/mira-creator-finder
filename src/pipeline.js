@@ -1,13 +1,20 @@
-// Orquestra as etapas de uma Round.
-// Gerar buscas, buscar no YouTube, coletar vídeos, calcular métricas, classificar, salvar.
+// Orquestra as etapas de uma Round (só a parte determinística).
+//   new       cria a pasta da Round e o round.json
+//   search    lê queries.json, busca no YouTube, calcula métricas, aplica regras,
+//             gera candidates.json e review.md
+//   finalize  junta regras + judgments.json (+ messages.json) e gera o CSV
+// O julgamento (buscas, status, motivo, mensagens) é feito pelo Claude na sessão.
 
-const { generateQueries } = require('./brief');
+const fs = require('fs');
+const path = require('path');
+const { loadQueries } = require('./brief');
 const youtube = require('./youtube');
 const metrics = require('./metrics');
-const claude = require('./claude');
-const { saveRound } = require('./output');
 const { requireKey } = require('./config');
-const { classifyAll } = require('./classify');
+const { applyJudgments, sortCreators, removeDashes } = require('./classify');
+const { buildReview } = require('./review');
+const { saveCsv } = require('./output');
+const round = require('./round');
 
 const MIN_SUBSCRIBERS = 10000;     // SOP 6.6 / 8.1: abaixo de 10K reprova
 const LARGE_SUBSCRIBERS = 600000;  // SOP 6.6: acima disso, anotar "large, may be expensive"
@@ -174,23 +181,39 @@ function defaultWindow(now) {
   return { from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
 }
 
-// Roda a Round. onProgress(etapa, detalhe) informa o andamento.
-async function runRound(options, onProgress = () => {}) {
-  // Confere as chaves antes de gastar qualquer coisa.
-  requireKey('ANTHROPIC_API_KEY');
-  requireKey('YOUTUBE_API_KEY');
-
+// Cria a pasta da Round e o round.json.
+function newRound(options) {
   const now = new Date();
-  const { theme, round, target = 20, redAlert = false } = options;
-  const limit = options.limit || target * 2; // SOP 3.3: cerca de 2x o alvo
-  const window = redAlert ? (options.window || defaultWindow(now)) : options.window || null;
+  const { theme, target = 20, redAlert = false } = options;
+  const dir = path.join(round.OUTPUT_DIR, round.roundDirName(options.round, theme));
+  const f = round.files(dir);
+  if (fs.existsSync(f.round)) {
+    throw new Error(`A Round já existe: ${dir}. Apague a pasta ou use outro número/tema.`);
+  }
+  const info = {
+    round: options.round,
+    theme,
+    red_alert: redAlert,
+    window: redAlert ? (options.window || defaultWindow(now)) : options.window || null,
+    target,
+    limit: options.limit || target * 2, // SOP 3.3: cerca de 2x o alvo
+    criteria: options.criteria || null,
+    created_at: now.toISOString(),
+  };
+  round.writeJson(f.round, info);
+  return { dir, info, files: f };
+}
 
-  // 1. Buscas
-  onProgress('Gerando buscas', theme);
-  const brief = await generateQueries({ theme, redAlert, window });
-  onProgress('Gerando buscas', `${brief.queries.length} buscas geradas`);
+// Busca no YouTube, coleta, métricas e regras. Gera candidates.json e review.md.
+async function runSearch(dir, onProgress = () => {}) {
+  requireKey('YOUTUBE_API_KEY');
+  const f = round.files(dir);
+  const info = round.readJson(f.round, 'configuração da Round');
+  const brief = loadQueries(f.queries);
+  const now = new Date();
+  const { window } = info;
 
-  // 2. Busca no YouTube, agrupando vídeos por canal
+  // 1. Busca no YouTube, agrupando vídeos por canal
   const byChannel = new Map();
   for (const [i, query] of brief.queries.entries()) {
     onProgress('Buscando no YouTube', `(${i + 1}/${brief.queries.length}) ${query}`);
@@ -206,17 +229,17 @@ async function runRound(options, onProgress = () => {}) {
   }
   onProgress('Buscando no YouTube', `${byChannel.size} canais encontrados`);
 
-  // 3. Dados dos canais e filtro de tamanho (antes de gastar cota com vídeos)
+  // 2. Dados dos canais e filtro de tamanho (antes de gastar cota com vídeos)
   const channels = await youtube.getChannels([...byChannel.keys()]);
   const big = channels.filter((c) => c.videoCount > 0 && (c.subscribersHidden || c.subscribers >= MIN_SUBSCRIBERS));
   const smallCount = channels.length - big.length;
   // Prioridade: canais que apareceram em mais buscas; depois, mais inscritos.
   big.sort((a, b) => (byChannel.get(b.channelId).length - byChannel.get(a.channelId).length)
     || ((b.subscribers || 0) - (a.subscribers || 0)));
-  const selected = big.slice(0, limit);
+  const selected = big.slice(0, info.limit);
   onProgress('Buscando no YouTube', `${big.length} com 10K+ inscritos (${smallCount} menores descartados). Coletando ${selected.length}.`);
 
-  // 4. Vídeos e métricas de cada canal
+  // 3. Vídeos e métricas de cada canal
   let done = 0;
   const creators = await mapLimit(selected, PARALLEL_CHANNELS, async (channel) => {
     let collected;
@@ -228,44 +251,77 @@ async function runRound(options, onProgress = () => {}) {
     }
     done += 1;
     onProgress('Calculando métricas', `(${done}/${selected.length}) ${channel.title}`);
-    return buildCreator({ round, channel, collected, matches: byChannel.get(channel.channelId), now });
+    return buildCreator({ round: info.round, channel, collected, matches: byChannel.get(channel.channelId), now });
   });
 
-  // 5. Filtros e status (Fase 2)
-  const classified = await classifyAll(creators, {
-    theme,
-    redAlert,
-    window,
-    niche: brief.niche,
-    triggerDefinition: brief.triggerContent,
-    criteria: options.criteria || null,
-  }, onProgress);
-
-  const count = (status) => classified.filter((c) => c.status === status).length;
+  // 4. Resumo para o julgamento na sessão
+  const review = buildReview(info, brief, creators);
   const meta = {
-    round,
-    theme,
-    red_alert: redAlert,
-    window,
-    target,
-    generated_at: now.toISOString(),
+    ...info,
+    searched_at: now.toISOString(),
     niche: brief.niche,
     trigger_content_definition: brief.triggerContent,
     queries: brief.queries,
     channels_found: byChannel.size,
     channels_below_10k: smallCount,
-    criteria: options.criteria || null,
-    approved: count('Approved'),
-    maybe: count('Maybe'),
-    not_approved: count('Not approved'),
+    to_judge: review.toJudge,
+    failed_by_rules: review.failed,
     youtube_quota_units: youtube.quota.units,
     youtube_api_calls: youtube.quota.calls,
-    claude_calls: claude.usage.calls,
-    claude_cost_usd: Number(claude.usage.costUsd.toFixed(4)),
   };
-
-  const files = saveRound({ round, theme, creators: classified, meta, date: now });
-  return { creators: classified, meta, files };
+  round.writeJson(f.candidates, { meta, creators });
+  fs.writeFileSync(f.review, review.markdown, 'utf8');
+  return { creators, meta, files: f };
 }
 
-module.exports = { runRound, extractContact, buildCreator };
+// Junta regras, judgments.json e messages.json (se existir) e gera o CSV.
+function finalizeRound(dir) {
+  const f = round.files(dir);
+  const { meta, creators } = round.readJson(f.candidates, 'candidatos (rode "search" antes)');
+  const judgmentsFile = round.readJson(f.judgments, 'julgamentos escritos na sessão');
+  const judgments = judgmentsFile.judgments || judgmentsFile;
+
+  const ctx = { redAlert: meta.red_alert, window: meta.window };
+  const { missing, invalid } = applyJudgments(creators, judgments, ctx);
+  if (missing.length || invalid.length) {
+    const lines = [];
+    if (missing.length) {
+      lines.push(`Faltam julgamentos para ${missing.length} canal(is):`);
+      for (const m of missing) lines.push(`  - ${m.name} (${m.channelId})`);
+    }
+    for (const inv of invalid) lines.push(`Julgamento inválido para ${inv.name} (${inv.channelId}): ${inv.errors.join('; ')}`);
+    throw new Error(lines.join('\n'));
+  }
+
+  // Mensagens do Bryce (Fase 6), por channel ID. Só entram em quem está Approved.
+  const warnings = [];
+  if (fs.existsSync(f.messages)) {
+    const data = round.readJson(f.messages, 'mensagens escritas na sessão');
+    const messages = data.messages || data;
+    for (const c of creators) {
+      const m = messages[c.platforms.youtube.channel_id];
+      if (!m) continue;
+      if (c.status !== 'Approved') {
+        warnings.push(`Mensagem ignorada: ${c.name} não está Approved.`);
+        continue;
+      }
+      c.message_type = m.type || null;
+      c.message = removeDashes(m.message);
+      if (!c.message.includes('calendly.com/bryce-g-mirasafety/30min')) {
+        warnings.push(`Mensagem de ${c.name} está sem o link do Calendly.`);
+      }
+    }
+  }
+
+  const sorted = sortCreators(creators);
+  const csvPath = saveCsv(dir, sorted);
+  const count = (status) => sorted.filter((c) => c.status === status).length;
+  return {
+    creators: sorted,
+    csvPath,
+    warnings,
+    counts: { approved: count('Approved'), maybe: count('Maybe'), notApproved: count('Not approved') },
+  };
+}
+
+module.exports = { newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow };

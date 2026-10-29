@@ -3,10 +3,13 @@
 .env.*
 !.env.example
 
-# Credenciais do Google (service account)
+# Google OAuth (cliente, token do login e config local com o ID da pasta do Drive)
+google-oauth-client.json
+token.json
+local-config.json
 *service-account*.json
 *credentials*.json
-google-*.json
+client_secret*.json
 
 # Dependências e saídas
 node_modules/
