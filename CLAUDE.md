@@ -151,7 +151,8 @@ mira-creator-finder/
     sources/
       google-auth.js       login OAuth (npm run google-auth)
       monday.js            leitura do board (Fase 3)
-      sheets.js            leitura da planilha principal (Fase 3) e criação das planilhas (Fase 5)
+      sheets.js            leitura da planilha principal (Fase 3)
+      drive.js             pasta CREATORS FIND, subpasta do tema e planilha da Round (Fase 5)
   public/                  página web (Fase 4, a redefinir)
   output/                  pastas das Rounds (fora do git)
   test/                    testes (npm test), sem chamadas a APIs
@@ -198,7 +199,7 @@ Testar primeiro com `--limit 10`. Mostrar no terminal as unidades de cota do You
 ### Fase 4: interface web e deploy (a redefinir)
 Com o julgamento feito na sessão e o login do Google só no computador do Ian, um site no Render não consegue rodar a Round inteira. Não implementar até o Ian decidir o novo formato.
 
-### Fase 5: saída no Google Drive
+### Fase 5: saída no Google Drive (código feito em `src/sources/drive.js`, falta teste real)
 1. Na primeira execução, o sistema cria no Drive do Ian a pasta **"CREATORS FIND"** e salva o ID dela em `local-config.json` (fora do git). Não usar pasta criada à mão: com o escopo `drive.file`, o app só enxerga o que ele mesmo criou. Se a pasta salva tiver sido apagada ou ido para a lixeira, criar de novo e atualizar o ID.
 2. Para cada pesquisa, criar (ou reutilizar, se já existir) uma subpasta dentro de "CREATORS FIND" com o nome do tema em maiúsculas (ex.: "PENTAGON").
 3. Dentro dela, criar a planilha `Round XX - TEMA - AAAA-MM-DD`. **Nunca sobrescrever** planilha existente: se o nome já existir, criar outra com sufixo (ex.: `(2)`).

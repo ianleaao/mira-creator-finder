@@ -52,7 +52,7 @@ test('review separa quem precisa de julgamento', () => {
   assert.match(review.markdown, /- Tiny: Too small \(4K subscribers\)/);
 });
 
-test('finalize junta julgamentos e mensagens e gera o CSV', () => {
+test('finalize junta julgamentos e mensagens e gera o CSV', async () => {
   const dir = tempDir();
   const f = files(dir);
   const creators = [
@@ -79,7 +79,7 @@ test('finalize junta julgamentos e mensagens e gera o CSV', () => {
     },
   });
 
-  const result = finalizeRound(dir);
+  const result = await finalizeRound(dir, { sheet: false });
   assert.deepStrictEqual(result.counts, { approved: 1, maybe: 0, notApproved: 2 });
   assert.strictEqual(result.creators[0].name, 'Good Prepper');
   assert.ok(result.warnings.some((w) => w.includes('News Daily')));
@@ -92,12 +92,12 @@ test('finalize junta julgamentos e mensagens e gera o CSV', () => {
   assert.match(csv, /News Daily,Not approved,"Media or news aggregator, not a creator"/);
 });
 
-test('finalize recusa quando falta julgamento', () => {
+test('finalize recusa quando falta julgamento', async () => {
   const dir = tempDir();
   const f = files(dir);
   writeJson(f.candidates, { meta: INFO, creators: [makeCreator('UCa', 'Good Prepper', 50000, 'a@a.com')] });
   writeJson(f.judgments, { judgments: {} });
-  assert.throws(() => finalizeRound(dir), /Faltam julgamentos para 1 canal/);
+  await assert.rejects(() => finalizeRound(dir, { sheet: false }), /Faltam julgamentos para 1 canal/);
 });
 
 test('modo de teste limita as buscas a 3', () => {
@@ -112,4 +112,22 @@ test('nome da pasta com e sem número da Round', () => {
   const { roundDirName } = require('../src/round');
   assert.strictEqual(roundDirName(null, 'PENTAGON'), 'pentagon');
   assert.strictEqual(roundDirName(25, 'Pentagon FORTRESS'), 'round-25-pentagon-fortress');
+});
+
+test('nomes no Drive: pasta do tema, planilha e sufixo sem sobrescrever', () => {
+  const { sheetBaseName, themeFolderName, uniqueName } = require('../src/sources/drive');
+  assert.strictEqual(themeFolderName('  pentagon  fortress '), 'PENTAGON FORTRESS');
+  assert.strictEqual(sheetBaseName('Pentagon', 25, '2026-10-29'), 'Round 25 - PENTAGON - 2026-10-29');
+  assert.strictEqual(sheetBaseName('Pentagon', null, '2026-10-29'), 'PENTAGON - 2026-10-29');
+  const base = 'PENTAGON - 2026-10-29';
+  assert.strictEqual(uniqueName(base, new Set()), base);
+  assert.strictEqual(uniqueName(base, new Set([base, `${base} (2)`])), `${base} (3)`);
+});
+
+test('formatação da planilha pinta o nome pela cor do status', () => {
+  const { formatRequests } = require('../src/sources/drive');
+  const reqs = formatRequests(0, [{ status: 'Approved' }, { status: 'Not approved' }]);
+  const paints = reqs.filter((r) => r.repeatCell && r.repeatCell.range.startRowIndex > 0);
+  assert.strictEqual(paints.length, 2);
+  assert.strictEqual(paints[0].repeatCell.range.endColumnIndex, 1);
 });

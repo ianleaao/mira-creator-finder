@@ -10,7 +10,8 @@ const path = require('path');
 const { loadQueries } = require('./brief');
 const youtube = require('./youtube');
 const metrics = require('./metrics');
-const { requireKey, TEST_MODE } = require('./config');
+const { requireKey, hasFile, TEST_MODE } = require('./config');
+const { createRoundSheet } = require('./sources/drive');
 const { applyJudgments, sortCreators, removeDashes } = require('./classify');
 const { buildReview } = require('./review');
 const { saveCsv } = require('./output');
@@ -284,8 +285,10 @@ async function runSearch(dir, onProgress = () => {}) {
   return { creators, meta, files: f };
 }
 
-// Junta regras, judgments.json e messages.json (se existir) e gera o CSV.
-function finalizeRound(dir) {
+// Junta regras, judgments.json e messages.json (se existir), gera o CSV e,
+// se o login no Google estiver feito, a planilha no Drive (Fase 5).
+// options.sheet = false pula a planilha (usado nos testes).
+async function finalizeRound(dir, options = {}) {
   const f = round.files(dir);
   const { meta, creators } = round.readJson(f.candidates, 'candidatos (rode "search" antes)');
   const judgmentsFile = round.readJson(f.judgments, 'julgamentos escritos na sessão');
@@ -325,10 +328,21 @@ function finalizeRound(dir) {
 
   const sorted = sortCreators(creators);
   const csvPath = saveCsv(dir, sorted);
+
+  let sheet = null;
+  if (options.sheet !== false) {
+    if (hasFile('google-oauth-client.json') && hasFile('token.json')) {
+      sheet = await createRoundSheet({ theme: meta.theme, round: meta.round, creators: sorted });
+    } else {
+      warnings.push('Planilha no Drive não criada: falta o login no Google (veja o README, Login no Google). O CSV foi gerado.');
+    }
+  }
+
   const count = (status) => sorted.filter((c) => c.status === status).length;
   return {
     creators: sorted,
     csvPath,
+    sheet,
     warnings,
     counts: { approved: count('Approved'), maybe: count('Maybe'), notApproved: count('Not approved') },
   };

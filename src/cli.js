@@ -128,10 +128,14 @@ async function main() {
   }
 
   if (opts.command === 'finalize') {
-    const { csvPath, counts, warnings } = finalizeRound(dir);
+    const { csvPath, sheet, counts, warnings } = await finalizeRound(dir);
     for (const w of warnings) console.log(`Aviso: ${w}`);
     console.log(`Approved: ${counts.approved} | Maybe: ${counts.maybe} | Not approved: ${counts.notApproved}`);
     console.log(`CSV: ${csvPath}`);
+    if (sheet) {
+      console.log(`Planilha: ${sheet.folder}/${sheet.name}`);
+      console.log(`Link: ${sheet.url}`);
+    }
   }
 }
 
