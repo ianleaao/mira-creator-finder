@@ -9,6 +9,7 @@
 // }
 
 const { readJson } = require('./round');
+const { TEST_MODE } = require('./config');
 
 const MIN_QUERIES = 8;
 const MAX_QUERIES = 15;
@@ -32,14 +33,19 @@ function cleanQueries(queries) {
   return out.slice(0, MAX_QUERIES);
 }
 
-function loadQueries(file) {
+function loadQueries(file, testMode = TEST_MODE) {
   const data = readJson(file, 'buscas da Round');
   if (!Array.isArray(data.queries)) throw new Error(`${file}: o campo "queries" precisa ser uma lista.`);
-  const queries = cleanQueries(data.queries);
-  if (queries.length < MIN_QUERIES) {
+  let queries = cleanQueries(data.queries);
+  if (testMode.enabled) {
+    if (queries.length > testMode.queries) {
+      console.warn(`Modo de teste: usando só as ${testMode.queries} primeiras buscas de ${queries.length}.`);
+      queries = queries.slice(0, testMode.queries);
+    }
+  } else if (queries.length < MIN_QUERIES) {
     console.warn(`Aviso: só ${queries.length} buscas válidas (o SOP pede de ${MIN_QUERIES} a ${MAX_QUERIES}).`);
   }
-  if (data.queries.length > MAX_QUERIES) {
+  if (!testMode.enabled && data.queries.length > MAX_QUERIES) {
     console.warn(`Aviso: ${data.queries.length} buscas recebidas, usando só as ${MAX_QUERIES} primeiras.`);
   }
   return { niche: data.niche || '', triggerContent: data.trigger_content || '', queries };

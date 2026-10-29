@@ -99,3 +99,17 @@ test('finalize recusa quando falta julgamento', () => {
   writeJson(f.judgments, { judgments: {} });
   assert.throws(() => finalizeRound(dir), /Faltam julgamentos para 1 canal/);
 });
+
+test('modo de teste limita as buscas a 3', () => {
+  const dir = tempDir();
+  const file = path.join(dir, 'queries.json');
+  writeJson(file, { queries: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] });
+  assert.deepStrictEqual(loadQueries(file, { enabled: true, queries: 3 }).queries, ['a', 'b', 'c']);
+  assert.strictEqual(loadQueries(file, { enabled: false }).queries.length, 8);
+});
+
+test('nome da pasta com e sem número da Round', () => {
+  const { roundDirName } = require('../src/round');
+  assert.strictEqual(roundDirName(null, 'PENTAGON'), 'pentagon');
+  assert.strictEqual(roundDirName(25, 'Pentagon FORTRESS'), 'round-25-pentagon-fortress');
+});

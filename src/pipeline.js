@@ -10,7 +10,7 @@ const path = require('path');
 const { loadQueries } = require('./brief');
 const youtube = require('./youtube');
 const metrics = require('./metrics');
-const { requireKey } = require('./config');
+const { requireKey, TEST_MODE } = require('./config');
 const { applyJudgments, sortCreators, removeDashes } = require('./classify');
 const { buildReview } = require('./review');
 const { saveCsv } = require('./output');
@@ -184,19 +184,29 @@ function defaultWindow(now) {
 // Cria a pasta da Round e o round.json.
 function newRound(options) {
   const now = new Date();
-  const { theme, target = 20, redAlert = false } = options;
+  const { theme, redAlert = false } = options;
   const dir = path.join(round.OUTPUT_DIR, round.roundDirName(options.round, theme));
   const f = round.files(dir);
   if (fs.existsSync(f.round)) {
     throw new Error(`A Round já existe: ${dir}. Apague a pasta ou use outro número/tema.`);
   }
+
+  // Modo de teste: alvo e coleta limitados a TEST_MODE.creators.
+  let target = options.target || 20;
+  let limit = options.limit || target * 2; // SOP 3.3: cerca de 2x o alvo
+  if (TEST_MODE.enabled) {
+    target = Math.min(target, TEST_MODE.creators);
+    limit = Math.min(limit, TEST_MODE.creators);
+  }
+
   const info = {
-    round: options.round,
+    round: options.round || null,
     theme,
     red_alert: redAlert,
     window: redAlert ? (options.window || defaultWindow(now)) : options.window || null,
     target,
-    limit: options.limit || target * 2, // SOP 3.3: cerca de 2x o alvo
+    limit,
+    test_mode: TEST_MODE.enabled,
     criteria: options.criteria || null,
     created_at: now.toISOString(),
   };

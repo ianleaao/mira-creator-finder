@@ -28,25 +28,28 @@ O sistema funciona sem algumas chaves: ele avisa e pula só a parte que depende 
 ## Uma Round, passo a passo
 
 ```
-node src/cli.js new "Pentagon FORTRESS" --round 25 --target 20 --red-alert --limit 10
+node src/cli.js new "PENTAGON"
 ```
-Cria `output/round-25-pentagon-fortress/`. Depois, **na sessão**, peça ao Claude para escrever o `queries.json`.
+Cria `output/pentagon/`. Só o tema é obrigatório (opções abaixo). Depois, **na sessão**, peça ao Claude para escrever o `queries.json`.
 
 ```
-node src/cli.js search --round 25
+node src/cli.js search "PENTAGON"
 ```
 Busca no YouTube, calcula métricas e aplica as regras. Gera `candidates.json` e `review.md`. **Na sessão**, peça ao Claude para ler o `review.md` e escrever o `judgments.json`.
 
 ```
-node src/cli.js finalize --round 25
+node src/cli.js finalize "PENTAGON"
 ```
 Junta tudo e gera o CSV na pasta da Round.
 
-Opções do `new`:
+Opções do `new` (todas opcionais):
+- `--round N`: número da Round (entra no nome da pasta e da planilha).
 - `--target`: quantidade alvo (padrão 20). O sistema coleta cerca de 2x esse número.
-- `--limit`: teto de canais coletados (use 10 nos testes).
+- `--limit`: teto de canais coletados.
 - `--red-alert`: só vídeos dentro da janela (padrão: últimos 30 dias). Mude com `--from 2026-09-30 --to 2026-10-28`.
 - `--criteria "texto"`: critérios extras da Round (SOP 8.3), ex.: `--criteria "creator must narrate, no gaming"`.
+
+**Modo de teste (ligado):** no máximo 3 buscas e 3 creators por Round, para não sobrecarregar. O limite fica em `TEST_MODE`, no `src/config.js`, e só sobe quando o sistema for aprovado.
 
 ## Login no Google (uma vez)
 

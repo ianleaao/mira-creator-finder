@@ -26,14 +26,20 @@ O código sempre tem a palavra final sobre as regras numéricas: um julgamento d
 
 ### Fluxo de uma Round
 
-Tudo de uma Round fica em `output/round-NN-tema/` (fora do git). Os arquivos escritos na sessão identificam cada canal pelo **channel ID**, nunca por número de linha.
+O Ian só precisa informar o tema (ex.: "PENTAGON"). Número da Round, Red Alert e o resto são opcionais.
 
-1. `node src/cli.js new "TEMA" --round N [--target N] [--limit N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]`: cria a pasta e o `round.json`.
+Tudo de uma Round fica em `output/tema/` (ou `output/round-NN-tema/` quando há número), fora do git. Os arquivos escritos na sessão identificam cada canal pelo **channel ID**, nunca por número de linha.
+
+1. `node src/cli.js new "TEMA" [--round N] [--target N] [--limit N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]`: cria a pasta e o `round.json`.
 2. **Sessão:** o Claude escreve `queries.json`.
-3. `node src/cli.js search --round N`: busca, coleta, métricas e regras. Gera `candidates.json` e `review.md`.
+3. `node src/cli.js search "TEMA"`: busca, coleta, métricas e regras. Gera `candidates.json` e `review.md`.
 4. **Sessão:** o Claude lê o `review.md` e escreve `judgments.json`.
-5. `node src/cli.js finalize --round N`: valida e junta tudo, ordena (Approved, Maybe, Not approved) e gera o CSV (e a planilha, depois da Fase 5).
+5. `node src/cli.js finalize "TEMA"`: valida e junta tudo, ordena (Approved, Maybe, Not approved) e gera o CSV (e a planilha, depois da Fase 5).
 6. **Sessão (Fase 6, só depois do verde da Marie):** o Claude escreve `messages.json` e roda `finalize` de novo.
+
+### Modo de teste (ligado)
+
+Enquanto o Ian não aprovar o sistema, cada Round usa **no máximo 3 buscas no YouTube e 3 creators** (`TEST_MODE` em `src/config.js`). No `queries.json`, escrever só 3 buscas. Não desligar nem aumentar os limites sem o Ian liberar; depois da aprovação, o plano é voltar para 8 a 15 buscas (SOP 3.2) e 30 creators ou mais.
 
 ### Guia para o julgamento na sessão
 

@@ -20,8 +20,9 @@ function buildReview(info, brief, creators) {
   }
 
   const lines = [];
-  lines.push(`# Review: Round ${info.round}, ${info.theme}`);
+  lines.push(`# Review: ${info.round ? `Round ${info.round}, ` : ''}${info.theme}`);
   lines.push('');
+  if (info.test_mode) lines.push('- Modo de teste: buscas e creators limitados');
   lines.push(`- Tipo: ${info.red_alert ? `Red Alert, janela ${info.window.from} a ${info.window.to}` : 'regular'}`);
   if (brief.niche) lines.push(`- Nicho alvo: ${brief.niche}`);
   if (brief.triggerContent) lines.push(`- Conteúdo-gatilho: ${brief.triggerContent}`);

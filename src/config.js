@@ -17,6 +17,14 @@ const KEYS = {
   APP_PASSWORD: 'senha de acesso da interface web (Fase 4)',
 };
 
+// Modo de teste: limita buscas e creators para não sobrecarregar.
+// Só desligar (enabled: false) quando o Ian aprovar o sistema.
+const TEST_MODE = {
+  enabled: true,
+  queries: 3,   // buscas no YouTube por Round (fora do teste: 8 a 15, SOP 3.2)
+  creators: 3,  // canais coletados e analisados por Round (fora do teste: cerca de 2x o alvo)
+};
+
 // Arquivos locais (fora do git) e a parte do sistema que depende deles.
 const FILES = {
   'google-oauth-client.json': 'login no Google (planilha principal e Drive)',
@@ -81,7 +89,7 @@ function redact(text) {
     .replace(/(ya29\.)[\w-]+/g, '$1***');
 }
 
-module.exports = { ROOT, KEYS, FILES, has, hasFile, missingKeys, reportKeys, requireKey, redact };
+module.exports = { ROOT, KEYS, FILES, TEST_MODE, has, hasFile, missingKeys, reportKeys, requireKey, redact };
 
 // Permite rodar direto: npm run check-env
 if (require.main === module) {

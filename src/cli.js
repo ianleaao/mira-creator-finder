@@ -1,32 +1,31 @@
 // Comandos de terminal. O julgamento (buscas, status, motivo, mensagens) é feito
 // pelo Claude na sessão, lendo e escrevendo arquivos na pasta da Round.
 
-const { reportKeys, redact } = require('./config');
+const { reportKeys, redact, TEST_MODE } = require('./config');
 const { newRound, runSearch, finalizeRound } = require('./pipeline');
 const { findRoundDir } = require('./round');
 
 const HELP = `Uso:
-  node src/cli.js new "TEMA" --round N [--target N] [--limit N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]
-  node src/cli.js search --round N [--theme "TEMA"]
-  node src/cli.js finalize --round N [--theme "TEMA"]
+  node src/cli.js new "TEMA" [--round N] [--target N] [--limit N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]
+  node src/cli.js search "TEMA" [--round N]
+  node src/cli.js finalize "TEMA" [--round N]
 
 Fluxo:
-  1. new        cria output/round-NN-tema/ com o round.json
+  1. new        cria a pasta da Round em output/ (ex.: output/pentagon/)
   2. (sessão)   o Claude escreve queries.json
   3. search     busca no YouTube, métricas e regras: gera candidates.json e review.md
   4. (sessão)   o Claude lê o review.md e escreve judgments.json
   5. finalize   junta tudo e gera o CSV (usa messages.json se existir)
 
-Opções do "new":
-  --round N      número da Round (obrigatório)
+Opções do "new" (todas opcionais, só o tema é obrigatório):
+  --round N      número da Round (entra no nome da pasta e da planilha)
   --target N     quantidade alvo de creators (padrão 20)
   --limit N      máximo de canais coletados (padrão 2x o alvo)
   --red-alert    Round de notícia: só conteúdo dentro da janela de datas
   --from/--to    janela de datas (padrão no Red Alert: últimos 30 dias)
   --criteria "x" critérios extras da Round (SOP 8.3)
 
-Opção do "search" e "finalize":
-  --theme "TEMA" só se houver mais de uma pasta com o mesmo número de Round`;
+Modo de teste (src/config.js, TEST_MODE): no máximo 3 buscas e 3 creators por Round.`;
 
 function parseArgs(argv) {
   const opts = { command: argv[0], redAlert: false };
@@ -45,7 +44,6 @@ function parseArgs(argv) {
     else if (arg === '--from') opts.from = value();
     else if (arg === '--to') opts.to = value();
     else if (arg === '--criteria') opts.criteria = value();
-    else if (arg === '--theme') opts.theme = value();
     else if (arg.startsWith('--')) throw new Error(`Opção desconhecida: ${arg}`);
     else rest.push(arg);
   }
@@ -53,11 +51,14 @@ function parseArgs(argv) {
     opts.help = true;
     return opts;
   }
-  if (!Number.isInteger(opts.round) || opts.round <= 0) throw new Error('Informe --round com um número.');
+  if (opts.round !== undefined && (!Number.isInteger(opts.round) || opts.round <= 0)) {
+    throw new Error('--round precisa ser um número inteiro maior que zero.');
+  }
+  opts.theme = rest.join(' ').trim() || null;
+  if (opts.command === 'new' && !opts.theme) throw new Error('Informe o tema entre aspas, ex.: "PENTAGON".');
+  if (!opts.theme && !opts.round) throw new Error('Informe o tema entre aspas, ex.: "PENTAGON".');
 
   if (opts.command === 'new') {
-    opts.theme = rest.join(' ').trim();
-    if (!opts.theme) throw new Error('Informe o tema entre aspas.');
     for (const key of ['target', 'limit']) {
       if (opts[key] !== undefined && (!Number.isInteger(opts[key]) || opts[key] <= 0)) {
         throw new Error(`--${key} precisa ser um número inteiro maior que zero.`);
@@ -100,14 +101,15 @@ async function main() {
 
   if (opts.command === 'new') {
     const { dir, info, files } = newRound(opts);
-    console.log(`Round ${info.round} criada: ${dir}`);
+    console.log(`${info.round ? `Round ${info.round}` : 'Round'} "${info.theme}" criada: ${dir}`);
+    if (TEST_MODE.enabled) console.log(`Modo de teste: até ${TEST_MODE.queries} buscas e ${TEST_MODE.creators} creators.`);
     console.log(`Tipo: ${info.red_alert ? `Red Alert, janela ${info.window.from} a ${info.window.to}` : 'regular'}`);
     console.log(`Alvo: ${info.target} | Máximo de canais coletados: ${info.limit}`);
     console.log(`\nPróximo passo: o Claude escreve ${files.queries} na sessão.`);
     return;
   }
 
-  const dir = findRoundDir(opts.round, opts.theme);
+  const dir = findRoundDir(opts.round || null, opts.theme);
 
   if (opts.command === 'search') {
     reportKeys();

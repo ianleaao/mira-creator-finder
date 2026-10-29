@@ -26,28 +26,29 @@ function slugify(text) {
 
 const pad = (round) => String(round).padStart(2, '0');
 
+// Nome da pasta: "round-25-pentagon" com número, ou só "pentagon" sem número.
 function roundDirName(round, theme) {
-  return `round-${pad(round)}-${slugify(theme)}`;
+  return round ? `round-${pad(round)}-${slugify(theme)}` : slugify(theme);
 }
 
-// Acha a pasta da Round pelo número (e pelo tema, se houver mais de uma com o mesmo número).
-function findRoundDir(round, theme = null) {
-  if (theme) {
-    const dir = path.join(OUTPUT_DIR, roundDirName(round, theme));
-    if (!fs.existsSync(dir)) throw new Error(`Pasta da Round não encontrada: ${dir}. Rode o comando "new" antes.`);
-    return dir;
-  }
-  const prefix = `round-${pad(round)}-`;
+// Acha a pasta da Round pelo tema e/ou pelo número.
+function findRoundDir(round = null, theme = null) {
+  if (!round && !theme) throw new Error('Informe o tema (ou --round).');
   const dirs = fs.existsSync(OUTPUT_DIR)
-    ? fs.readdirSync(OUTPUT_DIR, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && e.name.startsWith(prefix))
-      .map((e) => e.name)
+    ? fs.readdirSync(OUTPUT_DIR, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
     : [];
-  if (dirs.length === 0) throw new Error(`Nenhuma pasta da Round ${round} em output/. Rode o comando "new" antes.`);
-  if (dirs.length > 1) {
-    throw new Error(`Mais de uma pasta para a Round ${round}: ${dirs.join(', ')}. Use --theme para escolher.`);
+  const slug = theme ? slugify(theme) : null;
+  const matches = dirs.filter((name) => {
+    if (round && theme) return name === roundDirName(round, theme);
+    if (round) return name.startsWith(`round-${pad(round)}-`);
+    return name === slug || new RegExp(`^round-\\d+-${slug}$`).test(name);
+  });
+  const label = [round ? `Round ${round}` : null, theme ? `"${theme}"` : null].filter(Boolean).join(' ');
+  if (matches.length === 0) throw new Error(`Nenhuma pasta para ${label} em output/. Rode o comando "new" antes.`);
+  if (matches.length > 1) {
+    throw new Error(`Mais de uma pasta para ${label}: ${matches.join(', ')}. Informe o tema e o --round juntos.`);
   }
-  return path.join(OUTPUT_DIR, dirs[0]);
+  return path.join(OUTPUT_DIR, matches[0]);
 }
 
 function readJson(file, label) {
