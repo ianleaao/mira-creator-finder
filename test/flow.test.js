@@ -168,3 +168,11 @@ test('countValid conta só Approved e Maybe já julgados', () => {
   assert.strictEqual(countValid([a, b, c], j, { redAlert: false }), 1);
   assert.strictEqual(a.status, '', 'não altera os objetos originais');
 });
+
+test('pré-filtro pega sigla de emissora em maiúsculas e jornal pela descrição', () => {
+  const { prefilter } = require('../src/prefilter');
+  assert.match(prefilter({ title: 'KVUE', description: '', handle: '' }), /TV station/);
+  assert.match(prefilter({ title: 'Guardian Australia', description: 'The latest news videos from Guardian Australia.', handle: '' }), /TV station/);
+  assert.strictEqual(prefilter({ title: 'Kane Bailey', description: '', handle: '' }), null);
+  assert.strictEqual(prefilter({ title: 'KaneBailey', description: '', handle: '' }), null);
+});

@@ -108,3 +108,10 @@ test('search para quando tem candidatos suficientes e continua de onde parou', a
 
   if (original === undefined) delete process.env.YOUTUBE_API_KEY;
 });
+
+test('fila de coleta: faixa do SOP primeiro, gigantes no fim', () => {
+  const { sortQueue } = require('../src/pipeline');
+  const item = (id, subs, matches = 1) => ({ channel: { channelId: id, subscribers: subs, subscribersHidden: false }, matches: Array(matches).fill({}) });
+  const q = sortQueue([item('giant', 36000000, 2), item('mid', 80000), item('small', 15000, 2), item('big', 900000)]);
+  assert.deepStrictEqual(q.map((x) => x.channel.channelId), ['small', 'mid', 'big', 'giant']);
+});

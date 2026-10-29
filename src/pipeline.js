@@ -238,6 +238,23 @@ function seenIds(state) {
   ]);
 }
 
+// Ordem da fila de coleta (SOP 6.6): primeiro a faixa preferida (10K a 600K inscritos),
+// depois quem apareceu em mais vídeos da busca. Canais gigantes vão para o fim
+// (podem ser aprovados, mas são caros e raramente são creators do nicho).
+function sortQueue(queue) {
+  const inBand = (ch) => ch.subscribersHidden || ch.subscribers <= LARGE_SUBSCRIBERS;
+  queue.sort((a, b) => {
+    const bandA = inBand(a.channel);
+    const bandB = inBand(b.channel);
+    if (bandA !== bandB) return bandA ? -1 : 1;
+    // Fora da faixa: o menor primeiro.
+    if (!bandA) return (a.channel.subscribers || 0) - (b.channel.subscribers || 0);
+    // Na faixa: mais vídeos na busca; depois, mais inscritos.
+    return (b.matches.length - a.matches.length) || ((b.channel.subscribers || 0) - (a.channel.subscribers || 0));
+  });
+  return queue;
+}
+
 // Creator "provisório" só para comparar com a planilha do tema.
 function asSheetCreator(channel) {
   return {
@@ -308,7 +325,8 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
   }
 
   try {
-    if (need > 0) await drainQueue();
+    // Cada etapa roda pelo menos uma busca nova antes de consumir a fila, para que as buscas
+    // mais focadas no assunto entrem na disputa e quem aparece em várias buscas suba na fila.
     for (const query of brief.queries) {
       if (need === 0 || pending() >= goal) break;
       if (state.queries_done.includes(query)) continue;
@@ -331,6 +349,12 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
           if (!c.evidence.search_matches.some((x) => x.url === url)) {
             c.evidence.search_matches.push({ title: m.title, url, date: m.publishedAt.slice(0, 10), query });
           }
+        }
+      }
+      // Canais ainda na fila também ganham os vídeos novos (sobem na prioridade).
+      for (const item of state.queue) {
+        for (const m of byChannel.get(item.channel.channelId) || []) {
+          if (!item.matches.some((x) => x.videoId === m.videoId)) item.matches.push(m);
         }
       }
 
@@ -359,13 +383,14 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
         }
         survivors.push({ channel: ch, matches: byChannel.get(ch.channelId) });
       }
-      // Prioridade: mais vídeos na busca; depois, mais inscritos.
-      survivors.sort((a, b) => (b.matches.length - a.matches.length) || ((b.channel.subscribers || 0) - (a.channel.subscribers || 0)));
       state.queue.push(...survivors);
+      sortQueue(state.queue);
       state.queries_done.push(query);
       save();
       await drainQueue();
     }
+    // Buscas acabaram: consome o que sobrou na fila.
+    if (need > 0) await drainQueue();
   } finally {
     // Atualiza o resumo para o julgamento, mesmo se o alarme de cota parar no meio.
     const judgedIds = new Set(Object.keys(judgments));
@@ -467,4 +492,4 @@ async function finalizeRound(dir, options = {}) {
   };
 }
 
-module.exports = { newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow, countValid };
+module.exports = { newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow, countValid, sortQueue };

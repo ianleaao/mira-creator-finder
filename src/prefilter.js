@@ -14,12 +14,14 @@ const RULES = [
   {
     reason: 'TV station, radio or newspaper',
     // Nome: "News", siglas de emissora americana (KREM, WFAA...), "Channel 7", "TV" junto de notícia.
-    test: ({ name, description }) => /\bnews\b/.test(name)
+    test: ({ name, rawName, description }) => /\bnews\b/.test(name)
+      // Sigla de emissora americana toda em maiúsculas: KVUE, KREM, WFAA (opcionalmente seguida de cidade ou número).
+      || /^[KW][A-Z]{3}\b/.test(rawName)
       || /\b[kw][a-z]{2,3}\b(?:[\s-]?(?:tv|\d{1,2}))/.test(name)
       || /\b(?:abc|nbc|cbs|fox|cnn|pbs|npr|msnbc|cbc|bbc)(?:\s?\d{1,2}\b|\s(?:news|tv)\b|$)/.test(name)
       || /\b(?:channel|tv)\s?\d{1,2}\b/.test(name)
       || /\b(?:newspaper|gazette|tribune|herald|chronicle|times|post|journal|broadcasting|television station|radio station)\b/.test(name)
-      || /\b(?:local news|breaking news|news station|news team|newsroom|weather team|first alert weather)\b/.test(description),
+      || /\b(?:local news|breaking news|latest news|news videos|news coverage|news channel|news station|news team|newsroom|weather team|first alert weather)\b/.test(description),
   },
   {
     reason: 'Government agency or institution',
@@ -47,6 +49,7 @@ function normalize(text) {
 // Devolve o motivo do descarte ou null se o canal passa.
 function prefilter(channel) {
   const fields = {
+    rawName: String(channel.title || '').trim(),
     name: normalize(channel.title),
     handle: normalize(channel.handle).replace(/^@/, ''),
     description: normalize(channel.description).slice(0, 2000),
