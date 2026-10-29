@@ -38,15 +38,27 @@ async function askJson({ model, system, prompt, schema, effort = 'low', maxToken
   };
 
   let response;
-  if (model === MODELS.sonnet) {
-    // Se o Sonnet recusar por segurança, a API tenta de novo com outro modelo.
-    response = await getClient().beta.messages.create({
-      ...params,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-    });
-  } else {
-    response = await getClient().messages.create(params);
+  try {
+    if (model === MODELS.sonnet) {
+      // Se o Sonnet recusar por segurança, a API tenta de novo com outro modelo.
+      response = await getClient().beta.messages.create({
+        ...params,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+      });
+    } else {
+      response = await getClient().messages.create(params);
+    }
+  } catch (err) {
+    // Erros que se repetiriam em todas as chamadas: param a Round.
+    if (err instanceof Anthropic.AuthenticationError) {
+      throw Object.assign(new Error('ANTHROPIC_API_KEY inválida. Confira a chave no .env.'), { fatal: true });
+    }
+    if (err instanceof Anthropic.PermissionDeniedError || err instanceof Anthropic.BadRequestError
+      || err instanceof Anthropic.NotFoundError) {
+      throw Object.assign(new Error(`Erro na API do Claude (${err.status}): ${err.message}`), { fatal: true });
+    }
+    throw err;
   }
 
   usage.calls += 1;

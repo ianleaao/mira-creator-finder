@@ -50,6 +50,7 @@ node src/cli.js "Pentagon FORTRESS" --round 25 --target 20 --red-alert --limit 1
 - `--target`: quantidade alvo (padrão 20). O sistema coleta cerca de 2x esse número.
 - `--limit`: teto de canais coletados (use 10 nos testes).
 - `--red-alert`: só vídeos dentro da janela (padrão: últimos 30 dias). Mude com `--from 2026-09-30 --to 2026-10-28`.
+- `--criteria "texto"`: critérios extras da Round em inglês (SOP 8.3), ex.: `--criteria "creator must narrate, no gaming"`.
 
 O resultado vai para `output/` em CSV (abre no Excel) e JSON. No fim, o terminal mostra a cota do YouTube gasta e o custo do Claude.
 

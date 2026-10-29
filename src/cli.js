@@ -1,6 +1,7 @@
 // Comando de terminal da Fase 1.
 // Uso: node src/cli.js "Pentagon FORTRESS" --round 25 --target 20 --red-alert
-// Opções: --limit N (máximo de canais coletados), --from AAAA-MM-DD --to AAAA-MM-DD (janela)
+// Opções: --limit N (máximo de canais coletados), --from AAAA-MM-DD --to AAAA-MM-DD (janela),
+// --criteria "texto" (critérios extras da Round)
 
 const { reportKeys, redact } = require('./config');
 const { runRound } = require('./pipeline');
@@ -11,7 +12,8 @@ const HELP = `Uso: node src/cli.js "TEMA" --round N [--target N] [--limit N] [--
   --target N     quantidade alvo de creators (padrão 20)
   --limit N      máximo de canais coletados (padrão 2x o alvo)
   --red-alert    Round de notícia: só conteúdo dentro da janela de datas
-  --from/--to    janela de datas (padrão no Red Alert: últimos 30 dias)`;
+  --from/--to    janela de datas (padrão no Red Alert: últimos 30 dias)
+  --criteria "x" critérios extras da Round, em inglês (SOP 8.3), ex.: "creator must narrate, no gaming"`;
 
 function parseArgs(argv) {
   const opts = { redAlert: false };
@@ -29,6 +31,7 @@ function parseArgs(argv) {
     else if (arg === '--red-alert') opts.redAlert = true;
     else if (arg === '--from') opts.from = value();
     else if (arg === '--to') opts.to = value();
+    else if (arg === '--criteria') opts.criteria = value();
     else if (arg === '--help' || arg === '-h') opts.help = true;
     else if (arg.startsWith('--')) throw new Error(`Opção desconhecida: ${arg}`);
     else rest.push(arg);
@@ -85,6 +88,7 @@ async function main() {
 
   console.log('\n== Resultado');
   console.log(`   Creators salvos: ${creators.length}`);
+  console.log(`   Approved: ${meta.approved} | Maybe: ${meta.maybe} | Not approved: ${meta.not_approved}`);
   console.log(`   CSV:  ${files.csvPath}`);
   console.log(`   JSON: ${files.jsonPath}`);
   console.log('\n== Custos desta execução');

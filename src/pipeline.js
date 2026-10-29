@@ -1,5 +1,5 @@
 // Orquestra as etapas de uma Round.
-// Fase 1: gerar buscas, buscar no YouTube, coletar vídeos, calcular métricas, salvar.
+// Gerar buscas, buscar no YouTube, coletar vídeos, calcular métricas, classificar, salvar.
 
 const { generateQueries } = require('./brief');
 const youtube = require('./youtube');
@@ -7,6 +7,7 @@ const metrics = require('./metrics');
 const claude = require('./claude');
 const { saveRound } = require('./output');
 const { requireKey } = require('./config');
+const { classifyAll } = require('./classify');
 
 const MIN_SUBSCRIBERS = 10000;     // SOP 6.6 / 8.1: abaixo de 10K reprova
 const LARGE_SUBSCRIBERS = 600000;  // SOP 6.6: acima disso, anotar "large, may be expensive"
@@ -230,6 +231,17 @@ async function runRound(options, onProgress = () => {}) {
     return buildCreator({ round, channel, collected, matches: byChannel.get(channel.channelId), now });
   });
 
+  // 5. Filtros e status (Fase 2)
+  const classified = await classifyAll(creators, {
+    theme,
+    redAlert,
+    window,
+    niche: brief.niche,
+    triggerDefinition: brief.triggerContent,
+    criteria: options.criteria || null,
+  }, onProgress);
+
+  const count = (status) => classified.filter((c) => c.status === status).length;
   const meta = {
     round,
     theme,
@@ -242,14 +254,18 @@ async function runRound(options, onProgress = () => {}) {
     queries: brief.queries,
     channels_found: byChannel.size,
     channels_below_10k: smallCount,
+    criteria: options.criteria || null,
+    approved: count('Approved'),
+    maybe: count('Maybe'),
+    not_approved: count('Not approved'),
     youtube_quota_units: youtube.quota.units,
     youtube_api_calls: youtube.quota.calls,
     claude_calls: claude.usage.calls,
     claude_cost_usd: Number(claude.usage.costUsd.toFixed(4)),
   };
 
-  const files = saveRound({ round, theme, creators, meta, date: now });
-  return { creators, meta, files };
+  const files = saveRound({ round, theme, creators: classified, meta, date: now });
+  return { creators: classified, meta, files };
 }
 
 module.exports = { runRound, extractContact, buildCreator };
