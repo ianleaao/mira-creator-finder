@@ -4,7 +4,7 @@
 !.env.example
 
 # Google OAuth (cliente, token do login e config local com o ID da pasta do Drive)
-google-oauth-client.json
+google-oauth-client*.json*
 token.json
 local-config.json
 *service-account*.json
