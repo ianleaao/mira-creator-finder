@@ -9,11 +9,14 @@ const DESCRIPTION_LIMIT = 600;
 
 const oneLine = (text) => String(text || '').replace(/\s+/g, ' ').trim();
 
-function buildReview(info, brief, creators) {
+// options.skipIds: canais já julgados (ficam fora). options.prefiltered: descartados no pré-filtro.
+function buildReview(info, brief, creators, options = {}) {
   const ctx = { redAlert: info.red_alert, window: info.window };
+  const skip = options.skipIds || new Set();
   const toJudge = [];
   const failed = [];
   for (const c of creators) {
+    if (skip.has(c.platforms.youtube.channel_id)) continue;
     const rules = applyRules(c, ctx);
     if (rules.fail) failed.push({ c, reason: rules.fail });
     else toJudge.push({ c, rules });
@@ -22,7 +25,8 @@ function buildReview(info, brief, creators) {
   const lines = [];
   lines.push(`# Review: ${info.round ? `Round ${info.round}, ` : ''}${info.theme}`);
   lines.push('');
-  if (info.test_mode) lines.push('- Modo de teste: buscas e creators limitados');
+  lines.push(`- Meta: ${info.target} creators válidos (Approved ou Maybe)${info.test_mode ? ', modo de teste' : ''}`);
+  if (skip.size) lines.push(`- Já julgados (fora desta lista): ${skip.size}`);
   lines.push(`- Tipo: ${info.red_alert ? `Red Alert, janela ${info.window.from} a ${info.window.to}` : 'regular'}`);
   if (brief.niche) lines.push(`- Nicho alvo: ${brief.niche}`);
   if (brief.triggerContent) lines.push(`- Conteúdo-gatilho: ${brief.triggerContent}`);
@@ -66,6 +70,11 @@ function buildReview(info, brief, creators) {
   lines.push('');
   lines.push('## Reprovados por regra (não precisam de julgamento)');
   for (const { c, reason } of failed) lines.push(`- ${c.name}: ${reason}`);
+  if ((options.prefiltered || []).length) {
+    lines.push('');
+    lines.push('## Descartados no pré-filtro (sem coleta de vídeos)');
+    for (const p of options.prefiltered) lines.push(`- ${p.name}: ${p.reason.replace('Pre-filter: ', '')}`);
+  }
   lines.push('');
 
   return { markdown: lines.join('\n'), toJudge: toJudge.length, failed: failed.length };

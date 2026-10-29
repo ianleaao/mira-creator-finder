@@ -1,10 +1,59 @@
 // Busca de canais e coleta de vídeos via YouTube Data API v3.
 // Cota grátis: 10.000 unidades por dia. search.list = 100; os outros = 1 por chamada.
 
+const fs = require('fs');
+const path = require('path');
 const { google } = require('googleapis');
-const { requireKey } = require('./config');
+const { requireKey, ROOT, DAILY_QUOTA_GUARD } = require('./config');
 
+// Unidades gastas nesta execução.
 const quota = { units: 0, calls: 0 };
+
+// Registro do total gasto por dia (fora do git), para o alarme de cota.
+const USAGE_FILE = path.join(ROOT, 'output', 'quota-usage.json');
+let guardLimit = DAILY_QUOTA_GUARD;
+
+// O dia da cota do YouTube vira à meia-noite do horário do Pacífico.
+function quotaDay(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(now);
+}
+
+function readUsage() {
+  try {
+    return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function usedToday() {
+  return readUsage()[quotaDay()] || 0;
+}
+
+function addUsage(units) {
+  const usage = readUsage();
+  const day = quotaDay();
+  usage[day] = (usage[day] || 0) + units;
+  fs.mkdirSync(path.dirname(USAGE_FILE), { recursive: true });
+  fs.writeFileSync(USAGE_FILE, JSON.stringify(usage, null, 2), 'utf8');
+}
+
+// Permite ao Ian liberar um limite maior numa execução (search --allow-quota N).
+function setQuotaGuard(limit) {
+  guardLimit = limit;
+}
+
+// Converte códigos HTML que a busca do YouTube devolve nos títulos (&#39; &amp; &quot;).
+function decodeHtml(text) {
+  return String(text || '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
 
 let api = null;
 function yt() {
@@ -21,8 +70,17 @@ function errorReason(err) {
 
 // Chama a API contando a cota. Transforma erros comuns em mensagens claras.
 async function call(units, fn) {
+  // Alarme: para ANTES de passar do limite do dia.
+  const today = usedToday();
+  if (today + units > guardLimit) {
+    throw Object.assign(new Error(
+      `Alarme de cota: hoje já foram ${today} unidades do YouTube e a próxima chamada passaria de ${guardLimit}. `
+      + 'O progresso foi salvo. Para continuar, o Ian precisa liberar (search --allow-quota N).',
+    ), { fatal: true, quotaGuard: true });
+  }
   quota.units += units;
   quota.calls += 1;
+  addUsage(units);
   try {
     const res = await fn();
     return res.data;
@@ -62,8 +120,8 @@ async function searchVideos(query, { publishedAfter, publishedBefore, maxResults
     .map((item) => ({
       videoId: item.id.videoId,
       channelId: item.snippet.channelId,
-      channelTitle: item.snippet.channelTitle,
-      title: item.snippet.title,
+      channelTitle: decodeHtml(item.snippet.channelTitle),
+      title: decodeHtml(item.snippet.title),
       publishedAt: item.snippet.publishedAt,
     }));
 }
@@ -216,6 +274,10 @@ async function getChannelVideos(channel) {
 
 module.exports = {
   quota,
+  usedToday,
+  quotaDay,
+  setQuotaGuard,
+  decodeHtml,
   searchVideos,
   getChannels,
   getChannelVideos,

@@ -1,8 +1,8 @@
 // Orquestra as etapas de uma Round (só a parte determinística).
 //   new       cria a pasta da Round e o round.json
-//   search    lê queries.json, busca no YouTube, calcula métricas, aplica regras,
-//             gera candidates.json e review.md
-//   finalize  junta regras + judgments.json (+ messages.json) e gera o CSV
+//   search    roda as buscas do queries.json em etapas: pré-filtro, coleta, métricas e regras.
+//             Para quando há candidatos suficientes para julgar; rodar de novo continua de onde parou.
+//   finalize  junta regras + judgments.json (+ messages.json), gera o CSV e atualiza a planilha do tema
 // O julgamento (buscas, status, motivo, mensagens) é feito pelo Claude na sessão.
 
 const fs = require('fs');
@@ -11,33 +11,20 @@ const { loadQueries } = require('./brief');
 const youtube = require('./youtube');
 const metrics = require('./metrics');
 const { requireKey, hasFile, TEST_MODE } = require('./config');
-const { createRoundSheet } = require('./sources/drive');
-const { applyJudgments, sortCreators, removeDashes } = require('./classify');
+const { publishRound, themeSheetKeys } = require('./sources/drive');
+const { applyRules, applyJudgments, sortCreators, removeDashes } = require('./classify');
+const { prefilter } = require('./prefilter');
+const { isInSheet } = require('./sheet-merge');
 const { buildReview } = require('./review');
 const { saveCsv } = require('./output');
 const round = require('./round');
 
 const MIN_SUBSCRIBERS = 10000;     // SOP 6.6 / 8.1: abaixo de 10K reprova
 const LARGE_SUBSCRIBERS = 600000;  // SOP 6.6: acima disso, anotar "large, may be expensive"
-const PARALLEL_CHANNELS = 5;
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 const MIRA_RE = /mira\s?safety|mirasafety\.com/i;
-
-// Roda fn em cada item, no máximo `limit` ao mesmo tempo.
-async function mapLimit(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i], i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
 
 function unique(list) {
   return [...new Set(list)];
@@ -192,13 +179,8 @@ function newRound(options) {
     throw new Error(`A Round já existe: ${dir}. Apague a pasta ou use outro número/tema.`);
   }
 
-  // Modo de teste: alvo e coleta limitados a TEST_MODE.creators.
-  let target = options.target || 20;
-  let limit = options.limit || target * 2; // SOP 3.3: cerca de 2x o alvo
-  if (TEST_MODE.enabled) {
-    target = Math.min(target, TEST_MODE.creators);
-    limit = Math.min(limit, TEST_MODE.creators);
-  }
+  // Alvo = creators VÁLIDOS (Approved ou Maybe). No modo de teste, TEST_MODE.validCreators.
+  const target = TEST_MODE.enabled ? TEST_MODE.validCreators : (options.target || 20);
 
   const info = {
     round: options.round || null,
@@ -206,7 +188,6 @@ function newRound(options) {
     red_alert: redAlert,
     window: redAlert ? (options.window || defaultWindow(now)) : options.window || null,
     target,
-    limit,
     test_mode: TEST_MODE.enabled,
     criteria: options.criteria || null,
     created_at: now.toISOString(),
@@ -215,84 +196,216 @@ function newRound(options) {
   return { dir, info, files: f };
 }
 
-// Busca no YouTube, coleta, métricas e regras. Gera candidates.json e review.md.
-async function runSearch(dir, onProgress = () => {}) {
+function readJudgments(file) {
+  if (!fs.existsSync(file)) return {};
+  const data = round.readJson(file, 'julgamentos escritos na sessão');
+  return data.judgments || data;
+}
+
+// Quantos creators já julgados são válidos (Approved ou Maybe), aplicando regras + julgamento.
+function countValid(creators, judgments, ctx) {
+  const judged = creators
+    .filter((c) => judgments[c.platforms.youtube.channel_id])
+    .map((c) => JSON.parse(JSON.stringify(c)));
+  applyJudgments(judged, judgments, ctx);
+  return judged.filter((c) => c.status === 'Approved' || c.status === 'Maybe').length;
+}
+
+// Estado salvo no candidates.json entre execuções do search.
+function loadState(f, info, brief) {
+  const empty = {
+    meta: { ...info },
+    creators: [],
+    prefiltered: [],  // descartados no pré-filtro (marca, loja, mídia, governo)
+    small: [],        // abaixo de 10K inscritos ou sem vídeos
+    excluded: [],     // já estão na planilha do tema
+    queue: [],        // canais aprovados no pré-filtro, ainda não coletados
+    queries_done: [],
+  };
+  if (!fs.existsSync(f.candidates)) return empty;
+  const state = round.readJson(f.candidates, 'candidatos');
+  if (!Array.isArray(state.queries_done)) return empty; // formato antigo: recomeça
+  return { ...empty, ...state, meta: { ...state.meta, ...info } };
+}
+
+function seenIds(state) {
+  return new Set([
+    ...state.creators.map((c) => c.platforms.youtube.channel_id),
+    ...state.prefiltered.map((x) => x.channel_id),
+    ...state.small.map((x) => x.channel_id),
+    ...state.excluded.map((x) => x.channel_id),
+    ...state.queue.map((x) => x.channel.channelId),
+  ]);
+}
+
+// Creator "provisório" só para comparar com a planilha do tema.
+function asSheetCreator(channel) {
+  return {
+    name: channel.title,
+    platforms: { youtube: { channel_id: channel.channelId, handle: channel.handle, url: channelUrl(channel) } },
+  };
+}
+
+// Busca no YouTube em etapas. Para quando há candidatos suficientes para julgar,
+// quando as buscas acabam ou quando o alarme de cota dispara (o progresso fica salvo).
+async function runSearch(dir, onProgress = () => {}, options = {}) {
   requireKey('YOUTUBE_API_KEY');
+  if (options.allowQuota) youtube.setQuotaGuard(options.allowQuota);
   const f = round.files(dir);
   const info = round.readJson(f.round, 'configuração da Round');
   const brief = loadQueries(f.queries);
   const now = new Date();
-  const { window } = info;
+  const ctx = { redAlert: info.red_alert, window: info.window };
+  const state = loadState(f, info, brief);
+  Object.assign(state.meta, { niche: brief.niche, trigger_content_definition: brief.triggerContent, queries: brief.queries });
 
-  // 1. Busca no YouTube, agrupando vídeos por canal
-  const byChannel = new Map();
-  for (const [i, query] of brief.queries.entries()) {
-    onProgress('Buscando no YouTube', `(${i + 1}/${brief.queries.length}) ${query}`);
-    const results = await youtube.searchVideos(query, {
-      publishedAfter: window ? `${window.from}T00:00:00Z` : undefined,
-      publishedBefore: window ? `${window.to}T23:59:59Z` : undefined,
-    });
-    for (const r of results) {
-      if (!byChannel.has(r.channelId)) byChannel.set(r.channelId, []);
-      const list = byChannel.get(r.channelId);
-      if (!list.some((m) => m.videoId === r.videoId)) list.push({ ...r, query });
+  // Quem já está na planilha do tema não entra de novo (lista de exclusão).
+  // options.sheetKeys: lista de exclusão pronta (usado nos testes, sem consultar o Google).
+  let sheetKeys = new Set();
+  if (options.sheetKeys) {
+    sheetKeys = options.sheetKeys;
+  } else if (hasFile('google-oauth-client.json') && hasFile('token.json')) {
+    const sheet = await themeSheetKeys(info.theme);
+    sheetKeys = sheet.keys;
+    onProgress('Preparando', `Planilha do tema: ${sheet.count} creator(s) já registrados (excluídos da busca)`);
+  } else {
+    onProgress('Preparando', 'Sem login no Google: planilha do tema não consultada');
+  }
+
+  const judgments = readJudgments(f.judgments);
+  const valid = countValid(state.creators, judgments, ctx);
+  const pending = () => state.creators.filter((c) => !judgments[c.platforms.youtube.channel_id] && !applyRules(c, ctx).fail).length;
+  const need = Math.max(info.target - valid, 0);
+  // Meta da etapa: o dobro do que falta, para ter folga no julgamento.
+  const goal = need * 2;
+  onProgress('Preparando', `Válidos: ${valid} de ${info.target}. Aguardando julgamento: ${pending()}. Meta desta etapa: ${goal} para julgar.`);
+
+  const save = () => round.writeJson(f.candidates, state);
+  const runStats = { prefiltered: 0, small: 0, excluded: 0, collected: 0 };
+
+  // Coleta os canais da fila até atingir a meta da etapa.
+  async function drainQueue() {
+    while (state.queue.length && pending() < goal) {
+      const { channel, matches } = state.queue.shift();
+      let collected;
+      try {
+        collected = await youtube.getChannelVideos(channel);
+      } catch (err) {
+        if (err.fatal) {
+          state.queue.unshift({ channel, matches });
+          save();
+          throw err;
+        }
+        collected = { longVideos: [], shortVideos: [], lastUpload: null, shortsSource: 'playlist', error: err.reason || 'API error' };
+      }
+      const creator = buildCreator({ round: info.round, channel, collected, matches, now });
+      state.creators.push(creator);
+      runStats.collected += 1;
+      const rules = applyRules(creator, ctx);
+      onProgress('Coletando canais', `${channel.title}: ${rules.fail ? `reprovado por regra (${rules.fail})` : 'para julgar'}`);
+      save();
     }
   }
-  onProgress('Buscando no YouTube', `${byChannel.size} canais encontrados`);
 
-  // 2. Dados dos canais e filtro de tamanho (antes de gastar cota com vídeos)
-  const channels = await youtube.getChannels([...byChannel.keys()]);
-  const big = channels.filter((c) => c.videoCount > 0 && (c.subscribersHidden || c.subscribers >= MIN_SUBSCRIBERS));
-  const smallCount = channels.length - big.length;
-  // Prioridade: canais que apareceram em mais buscas; depois, mais inscritos.
-  big.sort((a, b) => (byChannel.get(b.channelId).length - byChannel.get(a.channelId).length)
-    || ((b.subscribers || 0) - (a.subscribers || 0)));
-  const selected = big.slice(0, info.limit);
-  onProgress('Buscando no YouTube', `${big.length} com 10K+ inscritos (${smallCount} menores descartados). Coletando ${selected.length}.`);
+  try {
+    if (need > 0) await drainQueue();
+    for (const query of brief.queries) {
+      if (need === 0 || pending() >= goal) break;
+      if (state.queries_done.includes(query)) continue;
 
-  // 3. Vídeos e métricas de cada canal
-  let done = 0;
-  const creators = await mapLimit(selected, PARALLEL_CHANNELS, async (channel) => {
-    let collected;
-    try {
-      collected = await youtube.getChannelVideos(channel);
-    } catch (err) {
-      if (err.fatal) throw err;
-      collected = { longVideos: [], shortVideos: [], lastUpload: null, shortsSource: 'playlist', error: err.reason || 'API error' };
+      onProgress('Buscando no YouTube', `"${query}"`);
+      const results = await youtube.searchVideos(query, {
+        publishedAfter: info.window ? `${info.window.from}T00:00:00Z` : undefined,
+        publishedBefore: info.window ? `${info.window.to}T23:59:59Z` : undefined,
+      });
+
+      // Vídeos agrupados por canal. Canais já coletados ganham os vídeos novos como evidência.
+      const byChannel = new Map();
+      for (const r of results) {
+        if (!byChannel.has(r.channelId)) byChannel.set(r.channelId, []);
+        byChannel.get(r.channelId).push({ ...r, query });
+      }
+      for (const c of state.creators) {
+        for (const m of byChannel.get(c.platforms.youtube.channel_id) || []) {
+          const url = `https://www.youtube.com/watch?v=${m.videoId}`;
+          if (!c.evidence.search_matches.some((x) => x.url === url)) {
+            c.evidence.search_matches.push({ title: m.title, url, date: m.publishedAt.slice(0, 10), query });
+          }
+        }
+      }
+
+      const seen = seenIds(state);
+      const newIds = [...byChannel.keys()].filter((id) => !seen.has(id));
+      const channels = newIds.length ? await youtube.getChannels(newIds) : [];
+      const survivors = [];
+      for (const ch of channels) {
+        const entry = { channel_id: ch.channelId, name: ch.title };
+        if (isInSheet(asSheetCreator(ch), sheetKeys)) {
+          state.excluded.push(entry);
+          runStats.excluded += 1;
+          continue;
+        }
+        if (ch.videoCount === 0 || (!ch.subscribersHidden && ch.subscribers < MIN_SUBSCRIBERS)) {
+          state.small.push({ ...entry, subscribers: ch.subscribers });
+          runStats.small += 1;
+          continue;
+        }
+        const reason = prefilter(ch);
+        if (reason) {
+          state.prefiltered.push({ ...entry, reason });
+          runStats.prefiltered += 1;
+          onProgress('Pré-filtro', `${ch.title}: ${reason.replace('Pre-filter: ', '')}`);
+          continue;
+        }
+        survivors.push({ channel: ch, matches: byChannel.get(ch.channelId) });
+      }
+      // Prioridade: mais vídeos na busca; depois, mais inscritos.
+      survivors.sort((a, b) => (b.matches.length - a.matches.length) || ((b.channel.subscribers || 0) - (a.channel.subscribers || 0)));
+      state.queue.push(...survivors);
+      state.queries_done.push(query);
+      save();
+      await drainQueue();
     }
-    done += 1;
-    onProgress('Calculando métricas', `(${done}/${selected.length}) ${channel.title}`);
-    return buildCreator({ round: info.round, channel, collected, matches: byChannel.get(channel.channelId), now });
-  });
+  } finally {
+    // Atualiza o resumo para o julgamento, mesmo se o alarme de cota parar no meio.
+    const judgedIds = new Set(Object.keys(judgments));
+    const review = buildReview(info, brief, state.creators, { skipIds: judgedIds, prefiltered: state.prefiltered });
+    state.meta = {
+      ...state.meta,
+      searched_at: now.toISOString(),
+      to_judge: review.toJudge,
+      youtube_quota_units_total: (state.meta.youtube_quota_units_total || 0) + youtube.quota.units,
+    };
+    save();
+    fs.writeFileSync(f.review, review.markdown, 'utf8');
+  }
 
-  // 4. Resumo para o julgamento na sessão
-  const review = buildReview(info, brief, creators);
-  const meta = {
-    ...info,
-    searched_at: now.toISOString(),
-    niche: brief.niche,
-    trigger_content_definition: brief.triggerContent,
-    queries: brief.queries,
-    channels_found: byChannel.size,
-    channels_below_10k: smallCount,
-    to_judge: review.toJudge,
-    failed_by_rules: review.failed,
-    youtube_quota_units: youtube.quota.units,
-    youtube_api_calls: youtube.quota.calls,
+  const remainingQueries = brief.queries.filter((q) => !state.queries_done.includes(q)).length;
+  return {
+    meta: state.meta,
+    files: f,
+    stats: {
+      ...runStats,
+      valid,
+      need,
+      toJudge: pending(),
+      remainingQueries,
+      queue: state.queue.length,
+      unitsThisRun: youtube.quota.units,
+      unitsToday: youtube.usedToday(),
+    },
   };
-  round.writeJson(f.candidates, { meta, creators });
-  fs.writeFileSync(f.review, review.markdown, 'utf8');
-  return { creators, meta, files: f };
 }
 
 // Junta regras, judgments.json e messages.json (se existir), gera o CSV e,
-// se o login no Google estiver feito, a planilha no Drive (Fase 5).
+// se o login no Google estiver feito, atualiza a planilha do tema no Drive (Fase 5).
 // options.sheet = false pula a planilha (usado nos testes).
 async function finalizeRound(dir, options = {}) {
   const f = round.files(dir);
-  const { meta, creators } = round.readJson(f.candidates, 'candidatos (rode "search" antes)');
-  const judgmentsFile = round.readJson(f.judgments, 'julgamentos escritos na sessão');
-  const judgments = judgmentsFile.judgments || judgmentsFile;
+  const state = round.readJson(f.candidates, 'candidatos (rode "search" antes)');
+  const { meta, creators } = state;
+  const judgments = readJudgments(f.judgments);
+  if (!fs.existsSync(f.judgments)) throw new Error(`Arquivo não encontrado: ${f.judgments} (julgamentos escritos na sessão).`);
 
   const ctx = { redAlert: meta.red_alert, window: meta.window };
   const { missing, invalid } = applyJudgments(creators, judgments, ctx);
@@ -332,20 +445,26 @@ async function finalizeRound(dir, options = {}) {
   let sheet = null;
   if (options.sheet !== false) {
     if (hasFile('google-oauth-client.json') && hasFile('token.json')) {
-      sheet = await createRoundSheet({ theme: meta.theme, round: meta.round, creators: sorted });
+      sheet = await publishRound({ theme: meta.theme, round: meta.round, creators: sorted });
     } else {
-      warnings.push('Planilha no Drive não criada: falta o login no Google (veja o README, Login no Google). O CSV foi gerado.');
+      warnings.push('Planilha no Drive não atualizada: falta o login no Google (veja o README, Login no Google). O CSV foi gerado.');
     }
   }
 
   const count = (status) => sorted.filter((c) => c.status === status).length;
+  const valid = count('Approved') + count('Maybe');
+  const queriesLeft = (meta.queries || []).filter((q) => !(state.queries_done || []).includes(q)).length;
+  if (valid < meta.target && (queriesLeft || (state.queue || []).length)) {
+    warnings.push(`Só ${valid} de ${meta.target} válidos. Ainda há buscas ou canais na fila: rode "search" de novo.`);
+  }
   return {
     creators: sorted,
     csvPath,
     sheet,
     warnings,
-    counts: { approved: count('Approved'), maybe: count('Maybe'), notApproved: count('Not approved') },
+    prefiltered: state.prefiltered || [],
+    counts: { approved: count('Approved'), maybe: count('Maybe'), notApproved: count('Not approved'), valid, target: meta.target },
   };
 }
 
-module.exports = { newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow };
+module.exports = { newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow, countValid };

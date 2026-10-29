@@ -80,7 +80,7 @@ test('finalize junta julgamentos e mensagens e gera o CSV', async () => {
   });
 
   const result = await finalizeRound(dir, { sheet: false });
-  assert.deepStrictEqual(result.counts, { approved: 1, maybe: 0, notApproved: 2 });
+  assert.deepStrictEqual(result.counts, { approved: 1, maybe: 0, notApproved: 2, valid: 1, target: 20 });
   assert.strictEqual(result.creators[0].name, 'Good Prepper');
   assert.ok(result.warnings.some((w) => w.includes('News Daily')));
 
@@ -100,12 +100,16 @@ test('finalize recusa quando falta julgamento', async () => {
   await assert.rejects(() => finalizeRound(dir, { sheet: false }), /Faltam julgamentos para 1 canal/);
 });
 
-test('modo de teste limita as buscas a 3', () => {
+test('buscas sobre produto são recusadas; buscas sobre o assunto passam', () => {
   const dir = tempDir();
   const file = path.join(dir, 'queries.json');
-  writeJson(file, { queries: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] });
-  assert.deepStrictEqual(loadQueries(file, { enabled: true, queries: 3 }).queries, ['a', 'b', 'c']);
-  assert.strictEqual(loadQueries(file, { enabled: false }).queries.length, 8);
+  writeJson(file, { queries: ['wildfire evacuation vlog', 'best mask wildfire smoke', 'respirator review'] });
+  assert.throws(() => loadQueries(file), /best mask wildfire smoke[\s\S]*respirator review/);
+  const good = ['wildfire evacuation vlog', 'living in wildfire country', 'fire season prep homestead',
+    'we evacuated from the wildfire', 'smoke season family california', 'wildland firefighter vlog',
+    'defensible space homestead', 'wildfire smoke day with kids'];
+  writeJson(file, { queries: good });
+  assert.strictEqual(loadQueries(file).queries.length, 8);
 });
 
 test('nome da pasta com e sem número da Round', () => {
@@ -124,10 +128,43 @@ test('nomes no Drive: pasta do tema, planilha e sufixo sem sobrescrever', () => 
   assert.strictEqual(uniqueName(base, new Set([base, `${base} (2)`])), `${base} (3)`);
 });
 
-test('formatação da planilha pinta o nome pela cor do status', () => {
-  const { formatRequests } = require('../src/sources/drive');
-  const reqs = formatRequests(0, [{ status: 'Approved' }, { status: 'Not approved' }]);
-  const paints = reqs.filter((r) => r.repeatCell && r.repeatCell.range.startRowIndex > 0);
-  assert.strictEqual(paints.length, 2);
-  assert.strictEqual(paints[0].repeatCell.range.endColumnIndex, 1);
+test('letra da coluna para colunas além do Z', () => {
+  const { columnLetter } = require('../src/sources/drive');
+  assert.strictEqual(columnLetter(0), 'A');
+  assert.strictEqual(columnLetter(25), 'Z');
+  assert.strictEqual(columnLetter(26), 'AA');
+});
+
+test('títulos da busca com códigos HTML são convertidos', () => {
+  const { decodeHtml } = require('../src/youtube');
+  assert.strictEqual(decodeHtml('Cloth masks won&#39;t &amp; &quot;smoke&quot;'), "Cloth masks won't & \"smoke\"");
+});
+
+test('pré-filtro descarta mídia, marca, governo e loja e deixa creators passarem', () => {
+  const { prefilter } = require('../src/prefilter');
+  const p = (title, description = '') => prefilter({ title, description, handle: '' });
+  assert.match(p('KREM 2 News'), /TV station/);
+  assert.match(p('ABC10'), /TV station/);
+  assert.match(p('3M'), /Brand/);
+  assert.match(p('CAL FIRE'), /Government/);
+  assert.match(p('Wildfire Info', 'Official channel of the county. Visit ready.gov'), /Government/);
+  assert.match(p('Bass Pro Shops'), /Store/);
+  for (const ok of ['Civilian Tactical', 'City Prepping', 'Abc Homestead', 'Foxtrot Prepping', 'Wildland Fire Guy']) {
+    assert.strictEqual(p(ok), null, ok);
+  }
+});
+
+test('countValid conta só Approved e Maybe já julgados', () => {
+  const { countValid } = require('../src/pipeline');
+  const a = makeCreator('UCa', 'Good Prepper', 50000, 'a@a.com');
+  const b = makeCreator('UCb', 'Other', 50000, 'b@b.com');
+  const c = makeCreator('UCc', 'Media', 50000, 'c@c.com');
+  const base = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
+    theme_link: true, trigger_index: 0, niche: 'x', confidence: 'high', why: 'x' };
+  const j = {
+    UCa: { ...base, channel_type: 'creator', status: 'Approved' },
+    UCc: { ...base, channel_type: 'media', status: 'Approved' },
+  };
+  assert.strictEqual(countValid([a, b, c], j, { redAlert: false }), 1);
+  assert.strictEqual(a.status, '', 'não altera os objetos originais');
 });

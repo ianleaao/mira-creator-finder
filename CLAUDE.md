@@ -30,16 +30,21 @@ O Ian só precisa informar o tema (ex.: "PENTAGON"). Número da Round, Red Alert
 
 Tudo de uma Round fica em `output/tema/` (ou `output/round-NN-tema/` quando há número), fora do git. Os arquivos escritos na sessão identificam cada canal pelo **channel ID**, nunca por número de linha.
 
-1. `node src/cli.js new "TEMA" [--round N] [--target N] [--limit N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]`: cria a pasta e o `round.json`.
-2. **Sessão:** o Claude escreve `queries.json`.
-3. `node src/cli.js search "TEMA"`: busca, coleta, métricas e regras. Gera `candidates.json` e `review.md`.
-4. **Sessão:** o Claude lê o `review.md` e escreve `judgments.json`.
-5. `node src/cli.js finalize "TEMA"`: valida e junta tudo, ordena (Approved, Maybe, Not approved) e gera o CSV (e a planilha, depois da Fase 5).
-6. **Sessão (Fase 6, só depois do verde da Marie):** o Claude escreve `messages.json` e roda `finalize` de novo.
+O Claude pode rodar todos os comandos sozinho, sem pedir ao Ian para executar.
+
+1. `node src/cli.js new "TEMA" [--round N] [--target N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]`: cria a pasta e o `round.json`.
+2. **Sessão:** o Claude escreve `queries.json` (8 a 15 buscas sobre o assunto, veja o guia abaixo).
+3. `node src/cli.js search "TEMA" [--allow-quota N]`: roda as buscas **em etapas**. Para cada busca: lê os canais, exclui quem já está na planilha do tema, descarta menores que 10K e o **pré-filtro** (marcas e fabricantes, lojas, TV e jornais, governo e institucionais) **antes** de coletar vídeos; depois coleta, calcula métricas e aplica as regras. Para quando há candidatos suficientes para julgar (o dobro dos válidos que faltam), quando as buscas acabam ou quando o alarme de cota dispara. Gera `candidates.json` (estado salvo) e `review.md` (só quem ainda não foi julgado).
+4. **Sessão:** o Claude lê o `review.md` e acrescenta os julgamentos no `judgments.json` (sem apagar os anteriores).
+5. Se ainda faltarem creators válidos, repetir 3 e 4: o `search` continua de onde parou, sem repetir busca nem canal.
+6. `node src/cli.js finalize "TEMA"`: valida e junta tudo, gera o CSV e atualiza a planilha do tema no Drive (Fase 5).
+7. **Sessão (Fase 6, só depois do verde da Marie):** o Claude escreve `messages.json` e roda `finalize` de novo.
 
 ### Modo de teste (ligado)
 
-Enquanto o Ian não aprovar o sistema, cada Round usa **no máximo 3 buscas no YouTube e 3 creators** (`TEST_MODE` em `src/config.js`). No `queries.json`, escrever só 3 buscas. Não desligar nem aumentar os limites sem o Ian liberar; depois da aprovação, o plano é voltar para 8 a 15 buscas (SOP 3.2) e 30 creators ou mais.
+O limite do teste é de **resultados, não de buscas**: cada Round entrega **3 creators válidos** (Approved ou Maybe). Usar as 8 a 15 buscas do SOP e parar quando houver 3 válidos ou quando as buscas acabarem (`TEST_MODE.validCreators` em `src/config.js`). Não desligar nem aumentar o limite sem o Ian liberar; depois da aprovação, o plano é 30 creators válidos ou mais.
+
+**Alarme de cota:** o `search` para e avisa antes de passar de **2.000 unidades** da cota diária do YouTube (`DAILY_QUOTA_GUARD`), somando tudo o que foi gasto no dia (registro em `output/quota-usage.json`; o dia vira à meia-noite do Pacífico). Avisar o Ian antes de passar desse total; só ele libera mais (`--allow-quota N`).
 
 ### Guia para o julgamento na sessão
 
@@ -53,8 +58,12 @@ Enquanto o Ian não aprovar o sistema, cada Round usa **no máximo 3 buscas no Y
 }
 ```
 
+- **O tema é o ASSUNTO do conteúdo, não o produto.** Buscar creators individuais que fazem vídeos sobre o assunto (estilo de vida, experiência, preparação), nunca reviews de produto. O `brief.js` recusa buscas com termos de produto (review, best, mask, respirator, N95, filter, purifier, nomes de marca etc.).
+  - Bons (WILDFIRE SMOKE): "wildfire evacuation vlog", "living in wildfire country", "fire season prep homestead", "we evacuated from the wildfire", "smoke season family california", "wildland firefighter vlog", "defensible space homestead".
+  - Ruins: "best mask wildfire smoke", "respirator review", qualquer busca com nome de produto.
+- `trigger_content` descreve um vídeo sobre o assunto (ex.: vlog de evacuação, rotina na temporada de fumaça), não sobre produto.
 - Em inglês, curtas (2 a 7 palavras), para a caixa de busca do YouTube: sem `site:`, sem a palavra "youtube", sem operadores booleanos. Aspas permitidas.
-- Misturar: nome oficial do tema, variações, o nicho (preppers, survival, militares e veteranos, homesteading, famílias preparadas) e ângulos de reação ou explicação.
+- Misturar: o assunto do tema, variações, o nicho (preppers, survival, militares e veteranos, homesteading, famílias preparadas) e ângulos de vlog, experiência, rotina e preparação.
 - Red Alert: incluir variações da notícia (pessoas, números, lugares, notícias da mesma onda), como nos exemplos da Round 25 no SOP 3.2.
 
 **`judgments.json`** (SOP 4 e 8), só para os canais da seção "Para julgar" do `review.md`:
@@ -143,6 +152,8 @@ mira-creator-finder/
     youtube.js             busca de canais e coleta de vídeos (YouTube Data API)
     metrics.js             médias, outliers, ratio, atividade
     classify.js            regras fixas + validação e aplicação do judgments.json
+    prefilter.js           pré-filtro automático (marca, loja, mídia, governo) antes da coleta
+    sheet-merge.js         junção na planilha do tema (seções, sem apagar nem sobrescrever)
     review.js              gera o review.md para o julgamento na sessão
     dedupe.js              normalização e comparação (SOP 7)
     sheet-template.js      layout da saída (colunas, larguras, cores): edite aqui
@@ -179,11 +190,12 @@ Projeto Node, dependências, `.env.example`, `.gitignore`, estrutura de pastas, 
 Testar primeiro com `--limit 10`. Mostrar no terminal as unidades de cota do YouTube gastas.
 
 ### Fase 2: filtros e status (feita, adaptada à nova arquitetura)
-1. Regras numéricas do SOP 4 e 8.1 em código (`classify.js`).
-2. Julgamentos (mídia ou loja, risco de marca, concorrente, recusa de patrocínio, apresentador saiu, ligação com o tema, vídeo-gatilho) feitos na sessão no `judgments.json`. O código reprova quando um julgamento indica reprovação, mesmo que o status escrito seja outro.
-3. Pontos fracos limitam a Maybe. Confiança `low` limita a Maybe.
-4. Em Red Alert, o vídeo-gatilho precisa ter data dentro da janela.
-5. Ordenar: Approved, Maybe, Not approved.
+1. Pré-filtro automático do SOP 4 em código (`prefilter.js`), antes de coletar vídeos: marcas e fabricantes (ex.: 3M), lojas, emissoras de TV, rádio e jornais (ex.: KREM 2 News), órgãos de governo e canais institucionais. Usa nome, handle e descrição do canal; na dúvida, deixa passar e o julgamento decide.
+2. Regras numéricas do SOP 4 e 8.1 em código (`classify.js`).
+3. Julgamentos (mídia ou loja, risco de marca, concorrente, recusa de patrocínio, apresentador saiu, ligação com o tema, vídeo-gatilho) feitos na sessão no `judgments.json`. O código reprova quando um julgamento indica reprovação, mesmo que o status escrito seja outro.
+4. Pontos fracos limitam a Maybe. Confiança `low` limita a Maybe.
+5. Em Red Alert, o vídeo-gatilho precisa ter data dentro da janela.
+6. Ordenar: Approved, Maybe, Not approved.
 
 **Decisão pendente do Ian:** creator sem e-mail e sem Instagram/TikTok. O SOP 8.1 reprova; hoje o código limita a Maybe porque a API do YouTube não mostra a seção de links do canal.
 
@@ -199,13 +211,17 @@ Testar primeiro com `--limit 10`. Mostrar no terminal as unidades de cota do You
 ### Fase 4: interface web e deploy (a redefinir)
 Com o julgamento feito na sessão e o login do Google só no computador do Ian, um site no Render não consegue rodar a Round inteira. Não implementar até o Ian decidir o novo formato.
 
-### Fase 5: saída no Google Drive (código feito em `src/sources/drive.js`, falta teste real)
+### Fase 5: saída no Google Drive (código em `src/sources/drive.js` e `src/sheet-merge.js`)
 1. Na primeira execução, o sistema cria no Drive do Ian a pasta **"CREATORS FIND"** e salva o ID dela em `local-config.json` (fora do git). Não usar pasta criada à mão: com o escopo `drive.file`, o app só enxerga o que ele mesmo criou. Se a pasta salva tiver sido apagada ou ido para a lixeira, criar de novo e atualizar o ID.
-2. Para cada pesquisa, criar (ou reutilizar, se já existir) uma subpasta dentro de "CREATORS FIND" com o nome do tema em maiúsculas (ex.: "PENTAGON").
-3. Dentro dela, criar a planilha `Round XX - TEMA - AAAA-MM-DD`. **Nunca sobrescrever** planilha existente: se o nome já existir, criar outra com sufixo (ex.: `(2)`).
-4. O layout da planilha vem do template em `src/sheet-template.js` (colunas, larguras, cores), para o Ian ajustar depois. Por enquanto, as colunas da seção "Saída". O formato final será definido mais tarde.
-5. Cores no nome conforme o SOP 9.2: verde aprovado, laranja maybe, vermelho reprovado.
-6. Escrever na planilha principal (bloco do Ian) fica fora do escopo. Não implementar sem eu pedir.
+2. **Mesmo tema = mesma planilha.** Cada tema tem uma subpasta (nome do tema em maiúsculas, ex.: "WILDFIRE SMOKE") e **uma única planilha**, criada só quando o tema é novo (`Round XX - TEMA - AAAA-MM-DD`, ou `TEMA - AAAA-MM-DD` sem número). O ID dela fica em `local-config.json` (`themes`); se não estiver lá, usar a planilha mais antiga da pasta do tema.
+3. A planilha tem três seções, nesta ordem, marcadas por uma linha com o texto na coluna A: **APPROVED**, **MAYBE**, **NOT APPROVED**. Planilhas antigas sem seções ganham os marcadores sem perder nenhuma linha.
+4. Creators novos entram no fim da seção do status deles. Todos os creators que já estão lá ficam, inclusive os reprovados.
+5. Canal que já está na planilha não entra de novo (compara por channel ID, link do YouTube e nome). Os canais da planilha são a lista de exclusão do `search`.
+6. **Nunca apagar linhas e nunca sobrescrever células existentes**: edições à mão do Ian (Supervisor Feedback, notas, status alterado) ficam como estão; uma linha cujo status foi mudado à mão não é movida. Localizar linhas sempre pelo conteúdo (channel ID ou nome), relendo a planilha antes de cada inserção, nunca por número de linha guardado.
+7. Coluna técnica **Channel ID** no fim do template, para localizar cada linha com segurança. Em planilha antiga sem ela, o cabeçalho ganha a coluna numa célula vazia.
+8. O layout vem do template em `src/sheet-template.js` (colunas, larguras, cores), para o Ian ajustar depois. As colunas são preenchidas pelo título do cabeçalho, então mudar a ordem à mão na planilha não quebra nada.
+9. Cores no nome conforme o SOP 9.2: verde aprovado, laranja maybe, vermelho reprovado.
+10. Escrever na planilha principal (bloco do Ian) fica fora do escopo. Não implementar sem eu pedir.
 
 ### Fase 6: mensagens
 O Claude escreve na sessão, no `messages.json`, o e-mail ou DM de cada Approved que recebeu verde da Marie, seguindo o SOP 12 (assinatura do Bryce, conteúdo real citado, duas ideias por formato, frases rotativas, Calendly, sem travessão, nome real só se verificado). O `finalize` coloca cada mensagem na coluna Specific Message, ignora quem não está Approved e avisa se faltar o link do Calendly. O sistema nunca envia nada.
@@ -232,10 +248,10 @@ Internamente, cada creator segue o formato JSON do SOP seção 17.
 7. Nunca expor chaves ou tokens no frontend, em logs ou em mensagens de erro.
 8. Sem travessão em nenhum texto.
 9. Nunca chamar a API da Anthropic.
-10. Nunca sobrescrever uma planilha existente no Drive.
+10. Nunca apagar linhas nem sobrescrever células de uma planilha existente no Drive; mesmo tema usa a mesma planilha.
 
 ## Custos
 
-- YouTube: grátis dentro da cota diária. Registrar no fim de cada `search` as unidades gastas.
+- YouTube: grátis dentro da cota diária. Registrar no fim de cada `search` as unidades gastas na etapa e no dia. Alarme em 2.000 unidades por dia: avisar o Ian antes de passar.
 - Apify (Fase 7): sempre que for usar um Actor novo, me diga o preço por item e estime o custo de uma Round de 50 candidatos antes de rodar. Registrar o custo no fim de cada execução.
 - Julgamento na sessão: sem custo de API, mas consome o limite de uso do plano do Claude. Por isso o `review.md` é compacto: ler ele, não o `candidates.json` inteiro.

@@ -35,21 +35,24 @@ Cria `output/pentagon/`. Só o tema é obrigatório (opções abaixo). Depois, *
 ```
 node src/cli.js search "PENTAGON"
 ```
-Busca no YouTube, calcula métricas e aplica as regras. Gera `candidates.json` e `review.md`. **Na sessão**, peça ao Claude para ler o `review.md` e escrever o `judgments.json`.
+Roda as buscas em etapas: exclui quem já está na planilha do tema, descarta marcas, lojas, TV e jornais e governo (pré-filtro) antes de coletar, calcula métricas e aplica as regras. Gera `candidates.json` e `review.md`. **Na sessão**, o Claude lê o `review.md` e escreve o `judgments.json`. Se faltarem creators válidos, rodar `search` de novo: ele continua de onde parou.
 
 ```
 node src/cli.js finalize "PENTAGON"
 ```
-Junta tudo e gera o CSV na pasta da Round.
+Junta tudo, gera o CSV na pasta da Round e atualiza a planilha do tema no Drive (mesmo tema = mesma planilha, com seções APPROVED, MAYBE e NOT APPROVED; nunca apaga linhas nem sobrescreve o que você editou).
 
 Opções do `new` (todas opcionais):
 - `--round N`: número da Round (entra no nome da pasta e da planilha).
-- `--target`: quantidade alvo (padrão 20). O sistema coleta cerca de 2x esse número.
-- `--limit`: teto de canais coletados.
+- `--target`: creators válidos desejados (padrão 20; no modo de teste, 3).
 - `--red-alert`: só vídeos dentro da janela (padrão: últimos 30 dias). Mude com `--from 2026-09-30 --to 2026-10-28`.
 - `--criteria "texto"`: critérios extras da Round (SOP 8.3), ex.: `--criteria "creator must narrate, no gaming"`.
 
-**Modo de teste (ligado):** no máximo 3 buscas e 3 creators por Round, para não sobrecarregar. O limite fica em `TEST_MODE`, no `src/config.js`, e só sobe quando o sistema for aprovado.
+**Modo de teste (ligado):** cada Round entrega 3 creators válidos (Approved ou Maybe), usando as 8 a 15 buscas do SOP. O limite fica em `TEST_MODE`, no `src/config.js`, e só sobe quando o sistema for aprovado.
+
+**Alarme de cota:** o `search` para antes de passar de 2.000 unidades do YouTube no dia. Para liberar mais: `node src/cli.js search "TEMA" --allow-quota 4000`.
+
+**Buscas:** sobre o assunto do tema (vlog, experiência, preparação), nunca sobre produto. Buscas com review, best, mask, respirator ou marca são recusadas.
 
 ## Login no Google (uma vez)
 

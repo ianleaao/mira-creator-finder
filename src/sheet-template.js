@@ -59,6 +59,15 @@ const COLUMNS = [
   { header: 'Best Contact Method', width: 140, value: (c) => c.contact.best_method || '' },
   { header: 'Specific Message', width: 400, value: (c) => c.message || '' },
   { header: 'Additional Notes', width: 360, value: (c) => c.notes.join('; ') },
+  // Coluna técnica: identifica o canal com segurança (o sistema localiza linhas por ela).
+  { header: 'Channel ID', width: 220, value: (c) => c.platforms.youtube.channel_id },
+];
+
+// Linhas de seção da planilha do tema, nesta ordem. O texto fica na coluna A.
+const SECTIONS = [
+  { status: 'Approved', label: 'APPROVED' },
+  { status: 'Maybe', label: 'MAYBE' },
+  { status: 'Not approved', label: 'NOT APPROVED' },
 ];
 
 // Cor do nome por status (convenção da Marie, SOP 9.2). Hex usado na planilha.
@@ -76,4 +85,16 @@ function toRow(creator) {
   });
 }
 
-module.exports = { COLUMNS, STATUS_COLORS, toRow };
+// Linha no formato de uma planilha cujo cabeçalho pode ter sido mudado à mão:
+// cada coluna é preenchida pelo título do cabeçalho; colunas desconhecidas ficam vazias.
+function toRowForHeader(creator, header) {
+  const byHeader = new Map(COLUMNS.map((col) => [col.header.toLowerCase(), col]));
+  return header.map((title) => {
+    const col = byHeader.get(String(title || '').trim().toLowerCase());
+    if (!col) return '';
+    const value = col.value(creator);
+    return value === null || value === undefined ? '' : String(value);
+  });
+}
+
+module.exports = { COLUMNS, SECTIONS, STATUS_COLORS, toRow, toRowForHeader };

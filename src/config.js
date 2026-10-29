@@ -17,13 +17,18 @@ const KEYS = {
   APP_PASSWORD: 'senha de acesso da interface web (Fase 4)',
 };
 
-// Modo de teste: limita buscas e creators para não sobrecarregar.
-// Só desligar (enabled: false) quando o Ian aprovar o sistema.
+// Modo de teste: o limite é de RESULTADOS, não de buscas. Usa as 8 a 15 buscas do SOP
+// e para quando tiver `validCreators` creators válidos (Approved ou Maybe) ou quando
+// as buscas acabarem. Só desligar (enabled: false) quando o Ian aprovar o sistema.
 const TEST_MODE = {
   enabled: true,
-  queries: 3,   // buscas no YouTube por Round (fora do teste: 8 a 15, SOP 3.2)
-  creators: 3,  // canais coletados e analisados por Round (fora do teste: cerca de 2x o alvo)
+  validCreators: 3,
 };
+
+// Alarme de cota do YouTube: o search para e avisa antes de passar deste total
+// de unidades no dia (o dia da cota vira à meia-noite do horário do Pacífico).
+// Para passar do limite, o Ian precisa liberar (search --allow-quota N).
+const DAILY_QUOTA_GUARD = 2000;
 
 // Arquivos locais (fora do git) e a parte do sistema que depende deles.
 const FILES = {
@@ -89,7 +94,7 @@ function redact(text) {
     .replace(/(ya29\.)[\w-]+/g, '$1***');
 }
 
-module.exports = { ROOT, KEYS, FILES, TEST_MODE, has, hasFile, missingKeys, reportKeys, requireKey, redact };
+module.exports = { ROOT, KEYS, FILES, TEST_MODE, DAILY_QUOTA_GUARD, has, hasFile, missingKeys, reportKeys, requireKey, redact };
 
 // Permite rodar direto: npm run check-env
 if (require.main === module) {
