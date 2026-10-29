@@ -1,7 +1,7 @@
 // Testes das regras de aprovação (sem chamar o Claude).
 const test = require('node:test');
 const assert = require('node:assert');
-const { applyRules, combine, sortCreators, buildPrompt } = require('../src/classify');
+const { applyRules, combine, sortCreators, buildPrompt, removeDashes } = require('../src/classify');
 
 // Creator de exemplo que passa em todas as regras.
 function creator(overrides = {}) {
@@ -103,4 +103,10 @@ test('prompt separa dados do canal como não confiáveis', () => {
   const prompt = buildPrompt(c, CTX, applyRules(c, CTX));
   assert.match(prompt, /<channel_data>[\s\S]*Prepping for families[\s\S]*<\/channel_data>/);
   assert.match(prompt, /0\. "Pentagon FORTRESS explained" \(2026-10-15\)/);
+});
+
+test('removeDashes troca travessão por vírgula e mantém hífen', () => {
+  const emDash = String.fromCharCode(0x2014);
+  assert.strictEqual(removeDashes(`Strong fit ${emDash} great trigger`), 'Strong fit, great trigger');
+  assert.strictEqual(removeDashes('off-grid prepper'), 'off-grid prepper');
 });

@@ -181,7 +181,9 @@ function combine(creator, rules, judgment, ctx) {
 }
 
 function removeDashes(text) {
-  return String(text || '').replace(/\s*[—–]\s*/g, ', ');
+  // 0x2014 = travessão, 0x2013 = meio-travessão. Montados por código para o caractere não aparecer no arquivo.
+  const dashes = new RegExp('\\s*[' + String.fromCharCode(0x2014, 0x2013) + ']\\s*', 'g');
+  return String(text || '').replace(dashes, ', ');
 }
 
 // Classifica todos os creators. ctx: { theme, redAlert, window, niche, triggerDefinition, criteria }
@@ -239,4 +241,4 @@ function sortCreators(creators) {
     || ((b.platforms.youtube.avg_video_views || 0) - (a.platforms.youtube.avg_video_views || 0)));
 }
 
-module.exports = { applyRules, combine, classifyAll, sortCreators, buildPrompt };
+module.exports = { applyRules, combine, classifyAll, sortCreators, buildPrompt, removeDashes };
