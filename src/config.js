@@ -13,7 +13,6 @@ const KEYS = {
   APIFY_TOKEN: 'TikTok e Instagram via Apify (Fase 7)',
   MONDAY_TOKEN: 'checagem de duplicidade no Monday',
   MONDAY_BOARD_ID: 'checagem de duplicidade no Monday',
-  MAIN_SHEET_ID: 'checagem de duplicidade na planilha principal',
   APP_PASSWORD: 'senha de acesso da interface web (Fase 4)',
 };
 

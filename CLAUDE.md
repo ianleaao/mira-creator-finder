@@ -126,7 +126,6 @@ YOUTUBE_API_KEY=
 APIFY_TOKEN=
 MONDAY_TOKEN=
 MONDAY_BOARD_ID=18359348579
-MAIN_SHEET_ID=
 APP_PASSWORD=
 ```
 
@@ -162,7 +161,6 @@ mira-creator-finder/
     sources/
       google-auth.js       login OAuth (npm run google-auth)
       monday.js            leitura do board (Fase 3)
-      sheets.js            leitura da planilha principal (Fase 3)
       drive.js             pasta CREATORS FIND, subpasta do tema e planilha da Round (Fase 5)
   public/                  página web (Fase 4, a redefinir)
   output/                  pastas das Rounds (fora do git)
@@ -200,13 +198,14 @@ Testar primeiro com `--limit 10`. Mostrar no terminal as unidades de cota do You
 **Decisão pendente do Ian:** creator sem e-mail e sem Instagram/TikTok. O SOP 8.1 reprova; hoje o código limita a Maybe porque a API do YouTube não mostra a seção de links do canal.
 
 ### Fase 3: duplicidade (somente leitura)
-1. Antes da busca, montar a lista de exclusão (SOP 2) lendo:
-   - Monday board `MONDAY_BOARD_ID`, todos os grupos, com paginação via `items_page` e `cursor`.
-   - Planilha principal inteira (todas as Rounds e todos os estagiários), via OAuth.
-2. Descartar canais da lista de exclusão logo depois da busca, antes de coletar vídeos (poupa cota).
-3. Depois da coleta, checar cada candidato de novo (SOP 7) com `dedupe.js` (feito): normalização do SOP 7.4, comparação por nome, handle, URL e channel ID, e "começa com" para sufixos como "(see notes)".
-4. Preencher `Duplicate Check` com os textos exatos do SOP 7.5.
-5. Me pergunte quais colunas do Monday guardam link e handle antes de implementar. Liste as colunas do board pela API para eu escolher.
+Decisão do Ian (diverge do SOP 2 e 7.2): a planilha principal antiga (.xlsx) **não** é usada. As planilhas que o sistema cria no Drive (pasta CREATORS FIND) passam a ser as planilhas padrão. A checagem de duplicados usa:
+- **As planilhas do tema no Drive** (já feito): quem já está na planilha do tema é excluído da busca.
+- **O board do Monday "Affiliate Partnership Tracking"** (`MONDAY_BOARD_ID`), onde a equipe registra todos os influenciadores contatados. Somente leitura.
+
+1. Checar no Monday **só os creators Approved e Maybe**, no `finalize`, antes de escrever na planilha. Ler o board inteiro (todos os grupos), com paginação via `items_page` e `cursor`.
+2. Comparar com `dedupe.js` (feito): normalização do SOP 7.4, nome, handle, URL e channel ID, e "começa com" para sufixos como "(see notes)".
+3. Encontrou no Monday: status vira `Not approved`, why explica o duplicado, e o `Duplicate Check` usa os textos exatos do SOP 7.5. Não encontrou: `Clear (not on Monday or outreach sheet)`. Sem `MONDAY_TOKEN`: `Monday not checked`.
+4. Me pergunte quais colunas do Monday guardam link e handle antes de implementar. Liste as colunas do board pela API para eu escolher.
 
 ### Fase 4: interface web e deploy (a redefinir)
 Com o julgamento feito na sessão e o login do Google só no computador do Ian, um site no Render não consegue rodar a Round inteira. Não implementar até o Ian decidir o novo formato.
@@ -243,7 +242,7 @@ Internamente, cada creator segue o formato JSON do SOP seção 17.
 2. Nunca deduzir nome real a partir do e-mail.
 3. Nunca contatar creators. Nenhum envio de e-mail ou DM.
 4. Nunca fazer login em contas de terceiros nem resolver captcha. Não usar Actors que façam isso (ex.: extração do e-mail comercial escondido do YouTube).
-5. Monday e planilha principal são somente leitura.
+5. Monday é somente leitura.
 6. Localizar linhas sempre pelo nome ou channel ID, nunca por número de linha salvo antes.
 7. Nunca expor chaves ou tokens no frontend, em logs ou em mensagens de erro.
 8. Sem travessão em nenhum texto.
