@@ -197,7 +197,7 @@ Testar primeiro com `--limit 10`. Mostrar no terminal as unidades de cota do You
 
 **Decisão pendente do Ian:** creator sem e-mail e sem Instagram/TikTok. O SOP 8.1 reprova; hoje o código limita a Maybe porque a API do YouTube não mostra a seção de links do canal.
 
-### Fase 3: duplicidade (somente leitura)
+### Fase 3: duplicidade (somente leitura, feita: `src/duplicates.js` e `src/sources/monday.js`)
 Decisão do Ian (diverge do SOP 2 e 7.2): a planilha principal antiga (.xlsx) **não** é usada. As planilhas que o sistema cria no Drive (pasta CREATORS FIND) passam a ser as planilhas padrão. A checagem de duplicados usa:
 - **As planilhas do tema no Drive** (já feito): quem já está na planilha do tema é excluído da busca.
 - **O board do Monday "Affiliate Partnership Tracking"** (`MONDAY_BOARD_ID`), onde a equipe registra todos os influenciadores contatados. Somente leitura.
@@ -205,7 +205,7 @@ Decisão do Ian (diverge do SOP 2 e 7.2): a planilha principal antiga (.xlsx) **
 1. Checar no Monday **só os creators Approved e Maybe**, no `finalize`, antes de escrever na planilha. Ler o board inteiro (todos os grupos), com paginação via `items_page` e `cursor`.
 2. Comparar com `dedupe.js` (feito): normalização do SOP 7.4, nome, handle, URL e channel ID, e "começa com" para sufixos como "(see notes)".
 3. Encontrou no Monday: status vira `Not approved`, why explica o duplicado, e o `Duplicate Check` usa os textos exatos do SOP 7.5. Não encontrou: `Clear (not on Monday or outreach sheet)`. Sem `MONDAY_TOKEN`: `Monday not checked`.
-4. Me pergunte quais colunas do Monday guardam link e handle antes de implementar. Liste as colunas do board pela API para eu escolher.
+4. Colunas escolhidas pelo Ian: **Handle / Contact** (links e @) e **Item** (nome do influenciador; nomes como "Nome / handle" valem também por parte).
 
 ### Fase 4: interface web e deploy (a redefinir)
 Com o julgamento feito na sessão e o login do Google só no computador do Ian, um site no Render não consegue rodar a Round inteira. Não implementar até o Ian decidir o novo formato.

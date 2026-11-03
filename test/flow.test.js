@@ -79,7 +79,7 @@ test('finalize junta julgamentos e mensagens e gera o CSV', async () => {
     },
   });
 
-  const result = await finalizeRound(dir, { sheet: false });
+  const result = await finalizeRound(dir, { sheet: false, monday: false });
   assert.deepStrictEqual(result.counts, { approved: 1, maybe: 0, notApproved: 2, valid: 1, target: 20 });
   assert.strictEqual(result.creators[0].name, 'Good Prepper');
   assert.ok(result.warnings.some((w) => w.includes('News Daily')));
@@ -97,7 +97,7 @@ test('finalize recusa quando falta julgamento', async () => {
   const f = files(dir);
   writeJson(f.candidates, { meta: INFO, creators: [makeCreator('UCa', 'Good Prepper', 50000, 'a@a.com')] });
   writeJson(f.judgments, { judgments: {} });
-  await assert.rejects(() => finalizeRound(dir, { sheet: false }), /Faltam julgamentos para 1 canal/);
+  await assert.rejects(() => finalizeRound(dir, { sheet: false, monday: false }), /Faltam julgamentos para 1 canal/);
 });
 
 test('buscas sobre produto são recusadas; buscas sobre o assunto passam', () => {

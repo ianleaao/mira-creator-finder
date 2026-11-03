@@ -10,7 +10,9 @@ const path = require('path');
 const { loadQueries } = require('./brief');
 const youtube = require('./youtube');
 const metrics = require('./metrics');
-const { requireKey, hasFile, TEST_MODE } = require('./config');
+const { requireKey, has, hasFile, TEST_MODE } = require('./config');
+const { readAllItems: readMondayItems } = require('./sources/monday');
+const { applyMondayCheck } = require('./duplicates');
 const { publishRound, themeSheetKeys } = require('./sources/drive');
 const { applyRules, applyJudgments, sortCreators, removeDashes } = require('./classify');
 const { prefilter } = require('./prefilter');
@@ -444,8 +446,20 @@ async function finalizeRound(dir, options = {}) {
     throw new Error(lines.join('\n'));
   }
 
-  // Mensagens do Bryce (Fase 6), por channel ID. Só entram em quem está Approved.
+  // Duplicados no Monday (Fase 3), só para Approved e Maybe.
+  // options.mondayItems: itens prontos (testes). options.monday = false: não consulta.
   const warnings = [];
+  let mondayItems = options.mondayItems || null;
+  if (!mondayItems && options.monday !== false) {
+    if (has('MONDAY_TOKEN') && has('MONDAY_BOARD_ID')) {
+      mondayItems = (await readMondayItems()).items;
+    } else {
+      warnings.push('Monday não consultado: falta MONDAY_TOKEN no .env (Duplicate Check: Monday not checked).');
+    }
+  }
+  const duplicates = applyMondayCheck(creators, mondayItems);
+
+  // Mensagens do Bryce (Fase 6), por channel ID. Só entram em quem está Approved.
   if (fs.existsSync(f.messages)) {
     const data = round.readJson(f.messages, 'mensagens escritas na sessão');
     const messages = data.messages || data;
@@ -487,6 +501,8 @@ async function finalizeRound(dir, options = {}) {
     csvPath,
     sheet,
     warnings,
+    duplicates,
+    mondayChecked: Boolean(mondayItems),
     prefiltered: state.prefiltered || [],
     counts: { approved: count('Approved'), maybe: count('Maybe'), notApproved: count('Not approved'), valid, target: meta.target },
   };
