@@ -81,7 +81,7 @@ test('finalize junta julgamentos e mensagens e gera o CSV', async () => {
 
   const base = {
     brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-    theme_link: true, trigger_index: 0, niche: 'Prepper', confidence: 'high',
+    theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'Prepper', confidence: 'high',
   };
   writeJson(f.judgments, {
     judgments: {
@@ -177,7 +177,7 @@ test('countValid conta só Approved e Maybe já julgados', () => {
   const b = makeCreator('UCb', 'Other', 50000, 'b@b.com');
   const c = makeCreator('UCc', 'Media', 50000, 'c@c.com');
   const base = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-    theme_link: true, trigger_index: 0, niche: 'x', confidence: 'high', why: 'x' };
+    theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'x', confidence: 'high', why: 'x' };
   const j = {
     UCa: { ...base, channel_type: 'creator', status: 'Approved' },
     UCc: { ...base, channel_type: 'media', status: 'Approved' },
@@ -210,7 +210,7 @@ test('finalize recusa mensagem reprovada na revisão', async () => {
   const f = files(dir);
   writeJson(f.candidates, { meta: INFO, creators: [makeCreator('UCa', 'Good Prepper', 50000, 'a@a.com')] });
   const base = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-    theme_link: true, trigger_index: 0, niche: 'Prepper', confidence: 'high' };
+    theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'Prepper', confidence: 'high' };
   writeJson(f.judgments, { judgments: { UCa: { ...base, channel_type: 'creator', status: 'Approved', why: 'ok' } } });
   writeJson(f.messages, { messages: { UCa: { type: 'email', message: 'Hey, want a sponsored video? https://calendly.com/bryce-g-mirasafety/30min' } } });
   await assert.rejects(() => finalizeRound(dir, { sheet: false, monday: false }), /reprovadas na revisão/);
@@ -223,4 +223,21 @@ test('pistas de nome vêm de frases explícitas, nunca do e-mail', () => {
     { source: 'video', text: 'Hi friends, my name is Ben and this is our farm' },
   ]);
   assert.deepStrictEqual(hints.map((h) => h.name), ['Shayla', 'Ben']);
+});
+
+test('buscas TEMA + NICHO: produto genérico até 1/3, marca concorrente nunca', () => {
+  const dir = tempDir();
+  const file = path.join(dir, 'queries.json');
+  const ian = ['prepper wildfire season', 'wildfire smoke prepping', 'homestead wildfire preparation', 'wildfire go bag',
+    'bug out bag wildfire', 'protect family from wildfire smoke', 'wildfire smoke air quality home', 'wildland firefighter gear',
+    'off grid wildfire season', 'emergency preparedness wildfire', 'N95 vs gas mask wildfire smoke'];
+  writeJson(file, { queries: ian });
+  assert.strictEqual(loadQueries(file).queries.length, 11);
+
+  writeJson(file, { queries: [...ian.slice(0, 8), '3M respirator wildfire'] });
+  assert.throws(() => loadQueries(file), /marca[\s\S]*3M respirator wildfire/);
+
+  const tooMany = ['mask wildfire', 'respirator smoke', 'filter fire season', 'gear wildfire', 'prepper wildfire', 'homestead fire', 'bug out fire', 'off grid fire', 'wildfire smoke prep'];
+  writeJson(file, { queries: tooMany });
+  assert.throws(() => loadQueries(file), /4 de 9 buscas; o limite é 1\/3 \(3\)/);
 });

@@ -8,26 +8,40 @@
 //   "queries": ["busca 1", "busca 2", ...]   (8 a 15)
 // }
 //
-// Regra do Ian: o tema é o ASSUNTO do conteúdo (estilo de vida, experiência, preparação),
-// nunca o produto. Buscas de review, "best", máscara, respirador ou marca são recusadas.
+// Correção dos filtros do Ian: cada busca combina TEMA + NICHO da MIRA. Termos de produto
+// genéricos (mask, respirator, filter, review, gear, kit) são permitidos em até 1/3 das buscas,
+// porque quem faz review de máscara é público ideal. Proibido só: nomes de marcas concorrentes.
 
 const { readJson } = require('./round');
+const { COMPETITORS } = require('./niche');
 
 const MIN_QUERIES = 8;
 const MAX_QUERIES = 15;
 
-// Termos de produto que não podem aparecer nas buscas.
+// Termos de produto genéricos: no máximo 1/3 das buscas.
 const PRODUCT_TERMS = [
-  'review', 'reviews', 'best', 'top 10', 'top 5', 'unboxing', 'vs', 'versus', 'buy', 'buying guide', 'budget',
-  'mask', 'masks', 'respirator', 'respirators', 'gas mask', 'n95', 'n99', 'p100', 'kn95', 'ffp2',
-  'filter', 'filters', 'cartridge', 'purifier', 'purifiers', 'air purifier', 'hepa',
-  '3m', 'honeywell', 'moldex', 'mira safety', 'mirasafety', 'dyson', 'coway', 'levoit', 'blueair', 'vogmask',
+  'review', 'reviews', 'best', 'unboxing', 'vs', 'versus', 'tested', 'test',
+  'mask', 'masks', 'gas mask', 'respirator', 'respirators', 'n95', 'n99', 'p100', 'kn95', 'ffp2',
+  'filter', 'filters', 'cartridge', 'purifier', 'purifiers', 'air purifier', 'hepa', 'gear', 'kit', 'kits',
 ];
 
-// Devolve os termos de produto encontrados numa busca (lista vazia se ok).
+// Marcas proibidas em qualquer busca: concorrentes (niche.js) e outras marcas de produto.
+const BANNED_BRANDS = [...COMPETITORS.map((b) => b.toLowerCase()), 'dyson', 'coway', 'levoit', 'blueair', 'vogmask'];
+
+function words(query) {
+  return ` ${String(query).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ')} `;
+}
+
+// Termos de produto genéricos encontrados numa busca.
 function productTerms(query) {
-  const text = ` ${String(query).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ')} `;
+  const text = words(query);
   return PRODUCT_TERMS.filter((term) => text.includes(` ${term} `));
+}
+
+// Marcas proibidas encontradas numa busca.
+function bannedBrands(query) {
+  const text = words(query);
+  return BANNED_BRANDS.filter((brand) => text.includes(` ${brand} `));
 }
 
 // Limpa as buscas: tira "site:", a palavra "youtube", espaços extras e repetidas.
@@ -54,11 +68,19 @@ function loadQueries(file) {
   if (!Array.isArray(data.queries)) throw new Error(`${file}: o campo "queries" precisa ser uma lista.`);
   const queries = cleanQueries(data.queries);
 
-  const bad = queries.map((q) => ({ q, terms: productTerms(q) })).filter((x) => x.terms.length);
-  if (bad.length) {
-    const lines = bad.map((x) => `  - "${x.q}" (${x.terms.join(', ')})`);
-    throw new Error(`Buscas sobre produto não são permitidas (o tema é o assunto do conteúdo):\n${lines.join('\n')}`);
+  const brands = queries.map((q) => ({ q, found: bannedBrands(q) })).filter((x) => x.found.length);
+  if (brands.length) {
+    const lines = brands.map((x) => `  - "${x.q}" (${x.found.join(', ')})`);
+    throw new Error(`Buscas com nome de marca não são permitidas:\n${lines.join('\n')}`);
   }
+
+  const product = queries.filter((q) => productTerms(q).length);
+  const maxProduct = Math.floor(queries.length / 3);
+  if (product.length > maxProduct) {
+    const lines = product.map((q) => `  - "${q}" (${productTerms(q).join(', ')})`);
+    throw new Error(`Termos de produto em ${product.length} de ${queries.length} buscas; o limite é 1/3 (${maxProduct}):\n${lines.join('\n')}`);
+  }
+
   if (queries.length < MIN_QUERIES) {
     console.warn(`Aviso: só ${queries.length} buscas válidas (o SOP pede de ${MIN_QUERIES} a ${MAX_QUERIES}).`);
   }
@@ -68,4 +90,4 @@ function loadQueries(file) {
   return { niche: data.niche || '', triggerContent: data.trigger_content || '', queries };
 }
 
-module.exports = { loadQueries, cleanQueries, productTerms, MIN_QUERIES, MAX_QUERIES };
+module.exports = { loadQueries, cleanQueries, productTerms, bannedBrands, MIN_QUERIES, MAX_QUERIES };

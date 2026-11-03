@@ -4,6 +4,7 @@
 
 const { formatCount, formatRatio } = require('./metrics');
 const { applyRules } = require('./classify');
+const { nicheScore } = require('./niche');
 
 const DESCRIPTION_LIMIT = 600;
 
@@ -58,12 +59,18 @@ function buildReview(info, brief, creators, options = {}) {
     if (rules.caps.length) lines.push(`- Pontos fracos (limitam a Maybe): ${rules.caps.join('; ')}`);
     const description = oneLine(c.evidence.channel_description);
     lines.push(`- Descrição: ${description ? description.slice(0, DESCRIPTION_LIMIT) : '(vazia)'}${description.length > DESCRIPTION_LIMIT ? '...' : ''}`);
+    // Nicho (correção dos filtros): categorias do YouTube, niche_score e marcas concorrentes citadas.
+    const ev = c.evidence;
+    const lastTitles = (ev.last_titles && ev.last_titles.length) ? ev.last_titles : ev.recent_titles;
+    const score = ev.niche_score !== undefined && ev.niche_score !== null ? ev.niche_score : nicheScore(lastTitles);
+    lines.push(`- Categorias do YouTube: ${(ev.topic_categories || []).join(', ') || 'n/d'} | niche_score: ${score} de ${Math.min(lastTitles.length, 15)} títulos`);
+    if ((ev.competitor_mentions || []).length) lines.push(`- ATENÇÃO, marcas concorrentes citadas: ${ev.competitor_mentions.join(', ')} (avaliar competitor_partner)`);
     lines.push('- Vídeos encontrados na busca (trigger_index):');
     for (const [i, m] of c.evidence.search_matches.entries()) {
       lines.push(`  ${i}. ${oneLine(m.title)} (${m.date})`);
     }
-    if (c.evidence.recent_titles.length) {
-      lines.push(`- Títulos recentes: ${c.evidence.recent_titles.map(oneLine).join(' | ')}`);
+    if (lastTitles.length) {
+      lines.push(`- Últimos ${Math.min(lastTitles.length, 15)} títulos: ${lastTitles.slice(0, 15).map(oneLine).join(' | ')}`);
     }
   }
 

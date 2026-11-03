@@ -137,13 +137,15 @@ async function getChannels(channelIds) {
   const result = [];
   for (const batch of chunks(channelIds, 50)) {
     const data = await call(1, () => yt().channels.list({
-      part: ['snippet', 'statistics', 'contentDetails'],
+      // topicDetails: categorias do canal (games, música, estilo de vida...). Mesmo custo: 1 por chamada.
+      part: ['snippet', 'statistics', 'contentDetails', 'topicDetails'],
       id: batch,
       maxResults: 50,
     }));
     for (const ch of data.items || []) {
       const stats = ch.statistics || {};
       result.push({
+        topicCategories: (ch.topicDetails && ch.topicDetails.topicCategories) || [],
         channelId: ch.id,
         title: ch.snippet.title,
         handle: ch.snippet.customUrl || null, // ex.: "@canal"
@@ -159,6 +161,18 @@ async function getChannels(channelIds) {
     }
   }
   return result;
+}
+
+// Títulos dos últimos uploads (longos e Shorts), para o niche_score antes da coleta. 1 unidade.
+async function getRecentTitles(channel, max = 15) {
+  const playlistId = channel.uploadsPlaylist || `UU${channel.channelId.slice(2)}`;
+  try {
+    const data = await call(1, () => yt().playlistItems.list({ part: ['snippet'], playlistId, maxResults: max }));
+    return (data.items || []).map((item) => decodeHtml(item.snippet.title)).filter((t) => t && t !== 'Private video' && t !== 'Deleted video');
+  } catch (err) {
+    if (err.fatal) throw err;
+    return [];
+  }
 }
 
 // IDs de vídeos de uma playlist, do mais novo para o mais antigo.
@@ -280,6 +294,7 @@ module.exports = {
   decodeHtml,
   searchVideos,
   getChannels,
+  getRecentTitles,
   getChannelVideos,
   durationSeconds,
 };

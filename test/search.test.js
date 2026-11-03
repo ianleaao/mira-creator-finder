@@ -36,6 +36,7 @@ function stubYoutube() {
     subscribers: CHANNELS[id].subscribers, subscribersHidden: false, videoCount: 50,
     uploadsPlaylist: `UU${id}`,
   }));
+  youtube.getRecentTitles = async (ch) => [`${ch.title} wildfire prep`, `${ch.title} homestead`];
   youtube.getChannelVideos = async (ch) => {
     calls.videos.push(ch.channelId);
     const longVideos = Array.from({ length: 10 }, (_, i) => ({
@@ -55,7 +56,7 @@ function setup() {
 }
 
 const JUDGE = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-  theme_link: true, trigger_index: 0, niche: 'x', why: 'x', confidence: 'high' };
+  theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'x', why: 'x', confidence: 'high' };
 
 test('search para quando tem candidatos suficientes e continua de onde parou', async () => {
   const calls = stubYoutube();

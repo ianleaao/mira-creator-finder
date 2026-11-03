@@ -39,8 +39,6 @@ function applyRules(creator, { redAlert = false, window = null } = {}) {
   }
   if (yt.subscribers === null) caps.push('Subscriber count hidden');
   if (creator.mira_mention) caps.push('Mentions MIRA Safety, check if already an affiliate');
-  const ratio = creator.metrics.views_to_subs_ratio;
-  if (ratio && ratio.label === 'Weak') caps.push('Weak views/subs ratio');
   if (creator.metrics.activity === 'Attention') {
     notes.push(`Last upload ${creator.metrics.days_since_upload} days ago`);
   }
@@ -62,6 +60,9 @@ const JUDGMENT_FIELDS = {
   refuses_sponsorships: 'boolean',
   host_left: 'boolean',
   theme_link: 'boolean',
+  niche_fit: ['strong', 'partial', 'none'],  // pela recorrência dos títulos, não por 1 vídeo
+  recurring_theme: 'boolean',                // mais de 1 vídeo no tema ou em tema adjacente
+  competitor_partner: 'boolean',             // divulga marca concorrente
   trigger_index: 'integer',
   niche: 'string',
   status: ['Approved', 'Maybe', 'Not approved'],
@@ -87,9 +88,16 @@ function validateJudgment(j) {
   return errors;
 }
 
-// Junta regras e julgamento no status final.
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+// Junta regras e julgamento no status final (correção dos filtros do Ian):
+//  - niche_fit "none" ou competitor_partner: Not approved;
+//  - pontos fracos: niche_fit "partial", vídeo-gatilho com mais de 12 meses, ratio Weak.
+//    Um ponto fraco: no máximo Maybe. Dois ou mais: Not approved.
+//  - Approved exige niche_fit "strong" + theme_link + gatilho recente + ratio Good ou Acceptable.
 function combine(creator, rules, judgment, ctx) {
   const notes = [...rules.notes];
+  const now = ctx.now ? new Date(ctx.now) : new Date();
 
   // Julgamentos que reprovam (SOP 4 e 8.1), aplicados pelo código.
   let fail = null;
@@ -101,6 +109,8 @@ function combine(creator, rules, judgment, ctx) {
   else if (judgment.competitor_seller) fail = 'Sells competing preparedness products';
   else if (judgment.refuses_sponsorships) fail = 'Publicly refuses sponsorships';
   else if (judgment.host_left) fail = 'Original host left the channel';
+  else if (judgment.competitor_partner) fail = 'Promotes a competitor brand';
+  else if (judgment.niche_fit === 'none') fail = 'Outside the MIRA niche (no recurring niche content)';
   else if (!judgment.theme_link) fail = 'No link to the Round theme';
   else if (judgment.trigger_index < 0 || judgment.trigger_index >= creator.evidence.search_matches.length) {
     fail = 'No trigger content about the theme';
@@ -114,15 +124,27 @@ function combine(creator, rules, judgment, ctx) {
     }
   }
 
+  // Pontos fracos contados (dois ou mais reprovam).
+  const weak = [];
+  if (judgment.niche_fit === 'partial') weak.push('partial niche fit');
+  if (trigger && !ctx.redAlert && now.getTime() - new Date(trigger.date).getTime() > YEAR_MS) weak.push('trigger video older than 12 months');
+  const ratio = creator.metrics.views_to_subs_ratio;
+  if (ratio && ratio.label === 'Weak') weak.push('weak views/subs ratio');
+  if (!fail && weak.length >= 2) fail = `Two or more weak points: ${weak.join(', ')}`;
+
+  // Outros tetos (sem contato, inscritos ocultos, menção à MIRA, ratio não verificada).
+  const caps = [...weak, ...rules.caps];
+  if (!ratio) caps.push('views/subs ratio not verified');
+
   let status = judgment.status;
   let why = judgment.why;
   if (fail) {
     status = 'Not approved';
     why = judgment.status === 'Not approved' ? judgment.why : fail;
   } else {
-    if (rules.caps.length && status === 'Approved') {
+    if (caps.length && status === 'Approved') {
       status = 'Maybe';
-      why = `${judgment.why}; ${rules.caps.join('; ')}`;
+      why = `${judgment.why}; ${caps.join('; ')}`;
     }
     if (judgment.confidence === 'low' && status === 'Approved') {
       status = 'Maybe';

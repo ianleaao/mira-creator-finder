@@ -30,7 +30,7 @@ function creator(overrides = {}) {
 
 const judgment = (overrides = {}) => ({
   channel_type: 'creator', brand_risk: false, competitor_seller: false, refuses_sponsorships: false,
-  host_left: false, theme_link: true, trigger_index: 0, niche: 'Family prepper',
+  host_left: false, theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'Family prepper',
   status: 'Approved', why: 'Prepper channel with a FORTRESS video', confidence: 'high', ...overrides,
 });
 
@@ -127,4 +127,49 @@ test('applyJudgments lista canais sem julgamento e ignora reprovados por regra',
   assert.strictEqual(ok.trigger_content.title, 'Pentagon FORTRESS explained');
   assert.strictEqual(small.status, 'Not approved');
   assert.match(small.why, /Too small/);
+});
+
+// Regras de nicho (correção dos filtros do Ian). Round regular, data de referência fixa.
+const REG = { theme: 'WILDFIRE SMOKE', redAlert: false, window: null, now: '2026-11-03T12:00:00Z' };
+
+test('niche_fit "none" e competitor_partner reprovam mesmo com theme_link', () => {
+  const c = creator();
+  const rules = applyRules(c, REG);
+  assert.strictEqual(combine(c, rules, judgment({ niche_fit: 'none' }), REG).status, 'Not approved');
+  const comp = combine(c, rules, judgment({ competitor_partner: true }), REG);
+  assert.strictEqual(comp.status, 'Not approved');
+  assert.strictEqual(comp.why, 'Promotes a competitor brand');
+});
+
+test('Approved exige nicho forte, gatilho recente e ratio Good ou Acceptable', () => {
+  const c = creator();
+  assert.strictEqual(combine(c, applyRules(c, REG), judgment(), REG).status, 'Approved');
+});
+
+test('um ponto fraco limita a Maybe', () => {
+  const c = creator();
+  const partial = combine(c, applyRules(c, REG), judgment({ niche_fit: 'partial' }), REG);
+  assert.strictEqual(partial.status, 'Maybe');
+  assert.match(partial.why, /partial niche fit/);
+
+  const old = creator();
+  old.evidence.search_matches[0].date = '2024-11-18';
+  assert.strictEqual(combine(old, applyRules(old, REG), judgment(), REG).status, 'Maybe');
+
+  const weakRatio = creator({ metrics: { views_to_subs_ratio: { ratio: 0.018, label: 'Weak' }, activity: 'Active', days_since_upload: 1 } });
+  assert.strictEqual(combine(weakRatio, applyRules(weakRatio, REG), judgment(), REG).status, 'Maybe');
+});
+
+test('dois pontos fracos juntos reprovam', () => {
+  const c = creator({ metrics: { views_to_subs_ratio: { ratio: 0.018, label: 'Weak' }, activity: 'Active', days_since_upload: 1 } });
+  c.evidence.search_matches[0].date = '2024-11-18';
+  const r = combine(c, applyRules(c, REG), judgment(), REG);
+  assert.strictEqual(r.status, 'Not approved');
+  assert.match(r.why, /Two or more weak points: trigger video older than 12 months, weak views\/subs ratio/);
+});
+
+test('julgamento sem os campos novos é recusado', () => {
+  const j = judgment();
+  delete j.niche_fit;
+  assert.ok(validateJudgment(j).some((e) => e.startsWith('niche_fit')));
 });

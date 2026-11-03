@@ -59,3 +59,21 @@ function prefilter(channel) {
 }
 
 module.exports = { prefilter, BRANDS };
+
+// Portão de nicho (correção dos filtros do Ian), depois de ler os últimos 15 títulos.
+// Reprova: categorias do YouTube só de entretenimento (games, música, humor, filmes) sem
+// nenhum título do nicho; ou canal acima de 2M inscritos com niche_score 0.
+const { nicheScore, topicNames, onlyEntertainment } = require('./niche');
+
+const BIG_CHANNEL = 2000000;
+
+function nicheGate(channel, titles) {
+  if (!titles.length) return null; // sem títulos, o julgamento decide
+  const score = nicheScore(titles);
+  if (score > 0) return null;
+  if (onlyEntertainment(topicNames(channel.topicCategories))) return 'Pre-filter: Entertainment-only channel with no niche titles';
+  if (channel.subscribers !== null && channel.subscribers > BIG_CHANNEL) return 'Pre-filter: Over 2M subscribers with no niche titles';
+  return null;
+}
+
+module.exports.nicheGate = nicheGate;

@@ -17,7 +17,8 @@ const { reviewMessage, buildMessageBrief } = require('./messages');
 const { buildIndex, findMatches } = require('./dedupe');
 const { publishRound, themeSheetKeys, verifyMessages } = require('./sources/drive');
 const { applyRules, applyJudgments, sortCreators, removeDashes } = require('./classify');
-const { prefilter } = require('./prefilter');
+const { prefilter, nicheGate } = require('./prefilter');
+const { nicheScore, topicNames, competitorMentions } = require('./niche');
 const { isInSheet } = require('./sheet-merge');
 const { buildReview } = require('./review');
 const { saveCsv } = require('./output');
@@ -163,6 +164,11 @@ function buildCreator({ round, channel, collected, matches, now }) {
         query: m.query,
       })),
       recent_titles: collected.longVideos.slice(0, 10).map((v) => v.title),
+      // Nicho (correção dos filtros): últimos 15 títulos, categorias do YouTube e marcas concorrentes citadas.
+      last_titles: channel.recentTitles || [],
+      niche_score: channel.recentTitles ? nicheScore(channel.recentTitles) : null,
+      topic_categories: topicNames(channel.topicCategories),
+      competitor_mentions: competitorMentions([channel.description, ...collected.longVideos.map((v) => v.description), ...collected.shortVideos.map((v) => v.description)]),
       // Descrições dos últimos vídeos: pistas do nome real para as mensagens (roteiro, passo 3).
       recent_descriptions: collected.longVideos.slice(0, 5).map((v) => String(v.description || '').slice(0, 500)),
     },
@@ -409,6 +415,16 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
           state.prefiltered.push({ ...entry, reason });
           runStats.prefiltered += 1;
           onProgress('Pré-filtro', `${ch.title}: ${reason.replace('Pre-filter: ', '')}`);
+          continue;
+        }
+        // Portão de nicho: últimos 15 títulos (1 unidade) antes de gastar com a coleta completa.
+        ch.recentTitles = await youtube.getRecentTitles(ch, 15);
+        ch.nicheScore = nicheScore(ch.recentTitles);
+        const gate = nicheGate(ch, ch.recentTitles);
+        if (gate) {
+          state.prefiltered.push({ ...entry, reason: gate });
+          runStats.prefiltered += 1;
+          onProgress('Pré-filtro', `${ch.title}: ${gate.replace('Pre-filter: ', '')}`);
           continue;
         }
         survivors.push({ channel: ch, matches: byChannel.get(ch.channelId) });
