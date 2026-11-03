@@ -6,7 +6,7 @@ const { newRound, runSearch, finalizeRound, messagesBrief } = require('./pipelin
 const { findRoundDir } = require('./round');
 
 const HELP = `Uso:
-  node src/cli.js new "TEMA" [--round N] [--target N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]
+  node src/cli.js new "TEMA" [--round N] [--target N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"] [--trigger-age N] [--allow-niche "a,b"]
   node src/cli.js search "TEMA" [--round N] [--allow-quota N]
   node src/cli.js messages "TEMA" [--round N]
   node src/cli.js finalize "TEMA" [--round N]
@@ -27,6 +27,8 @@ Opções do "new" (todas opcionais, só o tema é obrigatório):
   --red-alert    Round de notícia: só conteúdo dentro da janela de datas
   --from/--to    janela de datas (padrão no Red Alert: últimos 30 dias)
   --criteria "x" critérios extras da Round (SOP 8.3)
+  --trigger-age N  idade máxima do vídeo-gatilho em meses (padrão 12; Red Alert usa a janela)
+  --allow-niche "a,b"  nichos adjacentes liberados só nesta Round (ex.: "family,food storage")
 
 Opção do "search":
   --allow-quota N  libera até N unidades de cota no dia (o alarme padrão é ${DAILY_QUOTA_GUARD})`;
@@ -48,6 +50,8 @@ function parseArgs(argv) {
     else if (arg === '--from') opts.from = value();
     else if (arg === '--to') opts.to = value();
     else if (arg === '--criteria') opts.criteria = value();
+    else if (arg === '--trigger-age') opts.triggerAge = Number(value());
+    else if (arg === '--allow-niche') opts.allowNiche = value().split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
     else if (arg.startsWith('--')) throw new Error(`Opção desconhecida: ${arg}`);
     else rest.push(arg);
   }
@@ -59,6 +63,9 @@ function parseArgs(argv) {
     throw new Error('--round precisa ser um número inteiro maior que zero.');
   }
   opts.theme = rest.join(' ').trim() || null;
+  if (opts.triggerAge !== undefined && (!Number.isInteger(opts.triggerAge) || opts.triggerAge <= 0)) {
+    throw new Error('--trigger-age precisa ser um número inteiro de meses maior que zero.');
+  }
   if (opts.allowQuota !== undefined && (!Number.isInteger(opts.allowQuota) || opts.allowQuota <= 0)) {
     throw new Error('--allow-quota precisa ser um número inteiro maior que zero.');
   }
@@ -112,6 +119,7 @@ async function main() {
     if (TEST_MODE.enabled) console.log(`Modo de teste: meta de ${TEST_MODE.validCreators} creators válidos (Approved ou Maybe).`);
     console.log(`Tipo: ${info.red_alert ? `Red Alert, janela ${info.window.from} a ${info.window.to}` : 'regular'}`);
     console.log(`Meta: ${info.target} creators válidos`);
+    console.log(`Idade máxima do gatilho: ${info.red_alert ? 'janela do Red Alert' : `${info.trigger_max_age_months} meses`}${info.allowed_niches.length ? ` | Nichos liberados: ${info.allowed_niches.join(', ')}` : ''}`);
     console.log(`\nPróximo passo: o Claude escreve ${files.queries} na sessão.`);
     return;
   }

@@ -1,5 +1,9 @@
 // Teste do fluxo search (parte offline) + finalize, numa pasta temporária, sem APIs.
 const test = require('node:test');
+const BRIEF = {
+  mira_angle: 'wildfire smoke means respiratory protection for families',
+  niche_keywords: ['wildfire', 'smoke', 'prepper', 'prepping', 'preparedness', 'bug out', 'go bag', 'evacuation', 'air quality', 'gas mask', 'respirator', 'homestead', 'off grid', 'emergency', 'survival', 'fire season'],
+};
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
@@ -53,7 +57,7 @@ function tempDir() {
 test('loadQueries limpa e avisa', () => {
   const dir = tempDir();
   const file = path.join(dir, 'queries.json');
-  writeJson(file, { niche: 'preppers', trigger_content: 'video on FORTRESS', queries: ['a youtube', 'site:x.com b', 'A'] });
+  writeJson(file, { ...BRIEF, niche: 'preppers', trigger_content: 'video on FORTRESS', queries: ['a youtube', 'site:x.com b', 'A'] });
   const q = loadQueries(file);
   assert.deepStrictEqual(q.queries, ['a', 'b']);
   assert.strictEqual(q.niche, 'preppers');
@@ -81,7 +85,7 @@ test('finalize junta julgamentos e mensagens e gera o CSV', async () => {
 
   const base = {
     brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-    theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'Prepper', confidence: 'high',
+    theme_link: true, niche_fit: 'strong', niche_evidence: ['Video 0'], recurring_theme: true, competitor_partner: '', trigger_index: 0, niche: 'Prepper', confidence: 'high',
   };
   writeJson(f.judgments, {
     judgments: {
@@ -106,7 +110,7 @@ test('finalize junta julgamentos e mensagens e gera o CSV', async () => {
   assert.strictEqual(lines.length, 4);
   assert.match(lines[1], /^Good Prepper,Approved,Prepper with FORTRESS video,/);
   assert.match(lines[1], /calendly\.com/);
-  assert.match(csv, /News Daily,Not approved,"Media or news aggregator, not a creator"/);
+  assert.match(csv, /News Daily,Not approved,Outside MIRA niche/);
 });
 
 test('finalize recusa quando falta julgamento', async () => {
@@ -120,12 +124,12 @@ test('finalize recusa quando falta julgamento', async () => {
 test('buscas sobre produto são recusadas; buscas sobre o assunto passam', () => {
   const dir = tempDir();
   const file = path.join(dir, 'queries.json');
-  writeJson(file, { queries: ['wildfire evacuation vlog', 'best mask wildfire smoke', 'respirator review'] });
+  writeJson(file, { ...BRIEF, queries: ['wildfire evacuation vlog', 'best mask wildfire smoke', 'respirator review'] });
   assert.throws(() => loadQueries(file), /best mask wildfire smoke[\s\S]*respirator review/);
   const good = ['wildfire evacuation vlog', 'living in wildfire country', 'fire season prep homestead',
     'we evacuated from the wildfire', 'smoke season family california', 'wildland firefighter vlog',
     'defensible space homestead', 'wildfire smoke day with kids'];
-  writeJson(file, { queries: good });
+  writeJson(file, { ...BRIEF, queries: good });
   assert.strictEqual(loadQueries(file).queries.length, 8);
 });
 
@@ -177,7 +181,7 @@ test('countValid conta só Approved e Maybe já julgados', () => {
   const b = makeCreator('UCb', 'Other', 50000, 'b@b.com');
   const c = makeCreator('UCc', 'Media', 50000, 'c@c.com');
   const base = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-    theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'x', confidence: 'high', why: 'x' };
+    theme_link: true, niche_fit: 'strong', niche_evidence: ['Video 0'], recurring_theme: true, competitor_partner: '', trigger_index: 0, niche: 'x', confidence: 'high', why: 'x' };
   const j = {
     UCa: { ...base, channel_type: 'creator', status: 'Approved' },
     UCc: { ...base, channel_type: 'media', status: 'Approved' },
@@ -210,7 +214,7 @@ test('finalize recusa mensagem reprovada na revisão', async () => {
   const f = files(dir);
   writeJson(f.candidates, { meta: INFO, creators: [makeCreator('UCa', 'Good Prepper', 50000, 'a@a.com')] });
   const base = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-    theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'Prepper', confidence: 'high' };
+    theme_link: true, niche_fit: 'strong', niche_evidence: ['Video 0'], recurring_theme: true, competitor_partner: '', trigger_index: 0, niche: 'Prepper', confidence: 'high' };
   writeJson(f.judgments, { judgments: { UCa: { ...base, channel_type: 'creator', status: 'Approved', why: 'ok' } } });
   writeJson(f.messages, { messages: { UCa: { type: 'email', message: 'Hey, want a sponsored video? https://calendly.com/bryce-g-mirasafety/30min' } } });
   await assert.rejects(() => finalizeRound(dir, { sheet: false, monday: false }), /reprovadas na revisão/);
@@ -231,19 +235,38 @@ test('buscas TEMA + NICHO: produto genérico até 1/3, marca concorrente nunca',
   const ian = ['prepper wildfire season', 'wildfire smoke prepping', 'homestead wildfire preparation', 'wildfire go bag',
     'bug out bag wildfire', 'protect family from wildfire smoke', 'wildfire smoke air quality home', 'wildland firefighter gear',
     'off grid wildfire season', 'emergency preparedness wildfire', 'N95 vs gas mask wildfire smoke'];
-  writeJson(file, { queries: ian });
+  writeJson(file, { ...BRIEF, queries: ian });
   assert.strictEqual(loadQueries(file).queries.length, 11);
 
-  writeJson(file, { queries: [...ian.slice(0, 8), '3M respirator wildfire'] });
+  writeJson(file, { ...BRIEF, queries: [...ian.slice(0, 8), '3M respirator wildfire'] });
   assert.throws(() => loadQueries(file), /marca[\s\S]*3M respirator wildfire/);
 
   const tooMany = ['mask wildfire', 'respirator smoke', 'filter fire season', 'gear wildfire', 'prepper wildfire', 'homestead fire', 'bug out fire', 'off grid fire', 'wildfire smoke prep'];
-  writeJson(file, { queries: tooMany });
+  writeJson(file, { ...BRIEF, queries: tooMany });
   assert.throws(() => loadQueries(file), /4 de 9 buscas; o limite é 1\/3 \(3\)/);
 });
 
 test('niche_score não conta churrasco defumado como nicho', () => {
   const { nicheScore } = require('../src/niche');
-  assert.strictEqual(nicheScore(['How to Smoke Brisket Hot & Fast on a Drum Smoker', 'Smoked turkey recipe']), 0);
-  assert.strictEqual(nicheScore(['Wildfire smoke day with the kids', 'Smoke season prep list']), 2);
+  assert.strictEqual(nicheScore(['How to Smoke Brisket Hot & Fast on a Drum Smoker', 'Smoked turkey recipe']).count, 0);
+  assert.strictEqual(nicheScore(['Wildfire smoke day with the kids', 'Smoke season prep list']).label, '2/2');
+  // Comida e casa nunca contam, mesmo com palavra de preparação.
+  assert.strictEqual(nicheScore(['Emergency pantry canning recipe', 'Bug out bag basics']).count, 1);
+});
+
+test('review.md mostra niche_score, perfil, competitor_flags e idade do gatilho', () => {
+  const c = makeCreator('UCz', 'Prepper Zed', 50000, 'z@z.com');
+  c.evidence.topic_categories = ['Lifestyle (sociology)'];
+  c.evidence.last_videos = [
+    { title: 'Bug out bag basics', date: '2026-10-01' }, { title: 'Wildfire smoke prep', date: '2026-09-20' },
+    { title: 'Gas mask review ft. Parcil', date: '2026-09-01' }, { title: 'Canning peaches recipe', date: '2026-08-15' },
+  ];
+  c.evidence.competitor_flags = ['Parcil'];
+  const review = buildReview(INFO, { niche: 'preppers', miraAngle: 'smoke = respiratory protection' }, [c], { now: NOW.toISOString() });
+  assert.match(review.markdown, /niche_score: 3\/4 títulos de preparação/);
+  assert.match(review.markdown, /competitor_flags: Parcil/);
+  assert.match(review.markdown, /Perfil do canal: /);
+  assert.match(review.markdown, /- Bug out bag basics \(2026-10-01\)/);
+  assert.match(review.markdown, /0\. Pentagon FORTRESS 90 days \(\d{4}-\d{2}-\d{2}, 0 meses\)/);
+  assert.match(review.markdown, /MIRA angle: smoke = respiratory protection/);
 });

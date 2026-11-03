@@ -1,5 +1,9 @@
 // Teste do search em etapas, com o YouTube simulado (não gasta cota nem toca no Google).
 const test = require('node:test');
+const BRIEF = {
+  mira_angle: 'wildfire smoke means respiratory protection for families',
+  niche_keywords: ['wildfire', 'smoke', 'prepper', 'prepping', 'preparedness', 'bug out', 'go bag', 'evacuation', 'air quality', 'gas mask', 'respirator', 'homestead', 'off grid', 'emergency', 'survival', 'fire season'],
+};
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
@@ -19,7 +23,9 @@ const CHANNELS = {
   UCnews: { title: 'KREM 2 News', subscribers: 100000 },
   UCsmall: { title: 'Tiny Homestead', subscribers: 4000 },
 };
-for (let i = 1; i <= 16; i++) CHANNELS[`UCc${i}`] = { title: `Creator ${i}`, subscribers: 20000 + i };
+for (let i = 1; i <= 16; i++) CHANNELS[`UCc${i}`] = { title: `Prepper Creator ${i}`, subscribers: 20000 + i };
+const PREP_VIDEOS = ['Bug out bag basics', 'Wildfire smoke prep', 'Power outage checklist', 'Emergency water storage', 'Go bag for kids',
+  'Prepping on a budget', 'Evacuation plan', 'Gas mask basics', 'Grid down lighting'].map((title) => ({ title, date: '2026-10-01' }));
 const RESULTS = {};
 QUERIES.forEach((q, i) => {
   RESULTS[q] = i === 0 ? ['UCnews', 'UCsmall'] : [`UCc${i * 2 - 1}`, `UCc${i * 2}`];
@@ -36,7 +42,7 @@ function stubYoutube() {
     subscribers: CHANNELS[id].subscribers, subscribersHidden: false, videoCount: 50,
     uploadsPlaylist: `UU${id}`,
   }));
-  youtube.getRecentTitles = async (ch) => [`${ch.title} wildfire prep`, `${ch.title} homestead`];
+  youtube.getRecentTitles = async () => PREP_VIDEOS;
   youtube.getChannelVideos = async (ch) => {
     calls.videos.push(ch.channelId);
     const longVideos = Array.from({ length: 10 }, (_, i) => ({
@@ -51,12 +57,12 @@ function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mira-search-'));
   const f = files(dir);
   writeJson(f.round, { round: null, theme: 'WILDFIRE SMOKE', red_alert: false, window: null, target: 3, test_mode: true, criteria: null });
-  writeJson(f.queries, { niche: 'n', trigger_content: 't', queries: QUERIES });
+  writeJson(f.queries, { ...BRIEF, niche: 'n', trigger_content: 't', queries: QUERIES });
   return { dir, f };
 }
 
 const JUDGE = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
-  theme_link: true, niche_fit: 'strong', recurring_theme: true, competitor_partner: false, trigger_index: 0, niche: 'x', why: 'x', confidence: 'high' };
+  theme_link: true, niche_fit: 'strong', niche_evidence: ['Bug out bag basics'], recurring_theme: true, competitor_partner: '', trigger_index: 0, niche: 'x', why: 'x', confidence: 'high' };
 
 test('search para quando tem candidatos suficientes e continua de onde parou', async () => {
   const calls = stubYoutube();
@@ -121,7 +127,7 @@ test('canal que já está no Monday sai da busca antes da coleta', async () => {
   const calls = stubYoutube();
   const { dir } = setup();
   process.env.YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'teste';
-  const mondayItems = [{ name: 'Creator 1', handle: '', group: 'Messaged, but no reply yet' }];
+  const mondayItems = [{ name: 'Prepper Creator 1', handle: '', group: 'Messaged, but no reply yet' }];
   const r = await runSearch(dir, () => {}, { sheetKeys: new Set(), mondayItems });
   assert.strictEqual(r.stats.monday, 1);
   assert.ok(!calls.videos.includes('UCc1'));

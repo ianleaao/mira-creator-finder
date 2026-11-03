@@ -163,12 +163,18 @@ async function getChannels(channelIds) {
   return result;
 }
 
-// Títulos dos últimos uploads (longos e Shorts), para o niche_score antes da coleta. 1 unidade.
+// Últimos uploads (longos e Shorts) com título e data, para o niche_score antes da coleta.
+// 1 unidade (snippet e contentDetails no mesmo pedido). Devolve [{ title, date }].
 async function getRecentTitles(channel, max = 15) {
   const playlistId = channel.uploadsPlaylist || `UU${channel.channelId.slice(2)}`;
   try {
-    const data = await call(1, () => yt().playlistItems.list({ part: ['snippet'], playlistId, maxResults: max }));
-    return (data.items || []).map((item) => decodeHtml(item.snippet.title)).filter((t) => t && t !== 'Private video' && t !== 'Deleted video');
+    const data = await call(1, () => yt().playlistItems.list({ part: ['snippet', 'contentDetails'], playlistId, maxResults: max }));
+    return (data.items || [])
+      .map((item) => ({
+        title: decodeHtml(item.snippet.title),
+        date: String((item.contentDetails && item.contentDetails.videoPublishedAt) || item.snippet.publishedAt || '').slice(0, 10),
+      }))
+      .filter((v) => v.title && v.title !== 'Private video' && v.title !== 'Deleted video');
   } catch (err) {
     if (err.fatal) throw err;
     return [];

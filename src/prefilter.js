@@ -60,20 +60,26 @@ function prefilter(channel) {
 
 module.exports = { prefilter, BRANDS };
 
-// Portão de nicho (correção dos filtros do Ian), depois de ler os últimos 15 títulos.
-// Reprova: categorias do YouTube só de entretenimento (games, música, humor, filmes) sem
-// nenhum título do nicho; ou canal acima de 2M inscritos com niche_score 0.
-const { nicheScore, topicNames, onlyEntertainment } = require('./niche');
+// Portão de nicho (CLAUDE.md, Fase 2, item 1), antes de coletar vídeos:
+//  - reprova canais cujas categorias do YouTube são só Gaming, Music, Entertainment, Comedy ou Film,
+//    quando nenhum título encontrado na busca tem palavra do nicho;
+//  - canais acima de 2M inscritos com niche_score 0 não são reprovados: vão para o fim da fila.
+const { topicNames, onlyOffNicheTopics, anyNicheTitle, nicheScore } = require('./niche');
 
 const BIG_CHANNEL = 2000000;
 
-function nicheGate(channel, titles) {
-  if (!titles.length) return null; // sem títulos, o julgamento decide
-  const score = nicheScore(titles);
-  if (score > 0) return null;
-  if (onlyEntertainment(topicNames(channel.topicCategories))) return 'Pre-filter: Entertainment-only channel with no niche titles';
-  if (channel.subscribers !== null && channel.subscribers > BIG_CHANNEL) return 'Pre-filter: Over 2M subscribers with no niche titles';
+function nicheGate(channel, searchTitles, extraKeywords = []) {
+  if (onlyOffNicheTopics(topicNames(channel.topicCategories)) && !anyNicheTitle(searchTitles, extraKeywords)) {
+    return 'Pre-filter: Off-niche channel (gaming, music, entertainment, comedy or film) with no niche titles';
+  }
   return null;
 }
 
+// Fim da fila: acima de 2M inscritos e nenhum dos últimos 15 títulos é de preparação.
+function deprioritize(channel, recentTitles, extraKeywords = []) {
+  return channel.subscribers !== null && channel.subscribers > BIG_CHANNEL
+    && recentTitles.length > 0 && nicheScore(recentTitles, '', extraKeywords).count === 0;
+}
+
 module.exports.nicheGate = nicheGate;
+module.exports.deprioritize = deprioritize;

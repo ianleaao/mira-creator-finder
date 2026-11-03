@@ -17,8 +17,8 @@ const { reviewMessage, buildMessageBrief } = require('./messages');
 const { buildIndex, findMatches } = require('./dedupe');
 const { publishRound, themeSheetKeys, verifyMessages } = require('./sources/drive');
 const { applyRules, applyJudgments, sortCreators, removeDashes } = require('./classify');
-const { prefilter, nicheGate } = require('./prefilter');
-const { nicheScore, topicNames, competitorMentions } = require('./niche');
+const { prefilter, nicheGate, deprioritize } = require('./prefilter');
+const { nicheScore, topicNames, competitorFlags } = require('./niche');
 const { isInSheet } = require('./sheet-merge');
 const { buildReview } = require('./review');
 const { saveCsv } = require('./output');
@@ -165,13 +165,30 @@ function buildCreator({ round, channel, collected, matches, now }) {
       })),
       recent_titles: collected.longVideos.slice(0, 10).map((v) => v.title),
       // Nicho (correção dos filtros): últimos 15 títulos, categorias do YouTube e marcas concorrentes citadas.
-      last_titles: channel.recentTitles || [],
-      niche_score: channel.recentTitles ? nicheScore(channel.recentTitles) : null,
+      last_videos: channel.recentTitles || [],
+      last_titles: (channel.recentTitles || []).map((v) => v.title),
       topic_categories: topicNames(channel.topicCategories),
-      competitor_mentions: competitorMentions([channel.description, ...collected.longVideos.map((v) => v.description), ...collected.shortVideos.map((v) => v.description)]),
+      competitor_flags: competitorFlags([
+        channel.description,
+        ...collected.longVideos.map((v) => `${v.title}\n${v.description}`),
+        ...collected.shortVideos.map((v) => `${v.title}\n${v.description}`),
+        ...matches.map((m) => m.title),
+      ]),
       // Descrições dos últimos vídeos: pistas do nome real para as mensagens (roteiro, passo 3).
       recent_descriptions: collected.longVideos.slice(0, 5).map((v) => String(v.description || '').slice(0, 500)),
     },
+  };
+}
+
+// Contexto das regras de status (CLAUDE.md, Fase 2): janela do Red Alert, idade máxima do
+// gatilho, nichos liberados na Round e palavras do nicho da Round.
+function roundContext(info) {
+  return {
+    redAlert: Boolean(info.red_alert),
+    window: info.window || null,
+    triggerMaxAgeMonths: info.trigger_max_age_months || 12,
+    allowedNiches: info.allowed_niches || [],
+    nicheKeywords: info.niche_keywords || [],
   };
 }
 
@@ -202,6 +219,8 @@ function newRound(options) {
     target,
     test_mode: TEST_MODE.enabled,
     criteria: options.criteria || null,
+    trigger_max_age_months: options.triggerAge || 12,
+    allowed_niches: options.allowNiche || [],
     created_at: now.toISOString(),
   };
   round.writeJson(f.round, info);
@@ -258,13 +277,18 @@ function seenIds(state) {
 function sortQueue(queue) {
   const inBand = (ch) => ch.subscribersHidden || ch.subscribers <= LARGE_SUBSCRIBERS;
   queue.sort((a, b) => {
+    const lowA = Boolean(a.channel.deprioritized);
+    const lowB = Boolean(b.channel.deprioritized);
+    if (lowA !== lowB) return lowA ? 1 : -1;
     const bandA = inBand(a.channel);
     const bandB = inBand(b.channel);
     if (bandA !== bandB) return bandA ? -1 : 1;
     // Fora da faixa: o menor primeiro.
     if (!bandA) return (a.channel.subscribers || 0) - (b.channel.subscribers || 0);
-    // Na faixa: mais vídeos na busca; depois, mais inscritos.
-    return (b.matches.length - a.matches.length) || ((b.channel.subscribers || 0) - (a.channel.subscribers || 0));
+    // Na faixa: mais títulos de preparação; depois, mais vídeos na busca; depois, mais inscritos.
+    return ((b.channel.nicheScore || 0) - (a.channel.nicheScore || 0))
+      || (b.matches.length - a.matches.length)
+      || ((b.channel.subscribers || 0) - (a.channel.subscribers || 0));
   });
   return queue;
 }
@@ -290,9 +314,16 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
   const info = round.readJson(f.round, 'configuração da Round');
   const brief = loadQueries(f.queries);
   const now = new Date();
-  const ctx = { redAlert: info.red_alert, window: info.window };
+  const ctx = roundContext(info);
   const state = loadState(f, info, brief);
-  Object.assign(state.meta, { niche: brief.niche, trigger_content_definition: brief.triggerContent, queries: brief.queries });
+  Object.assign(state.meta, {
+    niche: brief.niche,
+    mira_angle: brief.miraAngle,
+    trigger_content_definition: brief.triggerContent,
+    niche_keywords: brief.nicheKeywords,
+    queries: brief.queries,
+  });
+  ctx.nicheKeywords = brief.nicheKeywords;
 
   // Quem já está na planilha do tema não entra de novo (lista de exclusão).
   // options.sheetKeys: lista de exclusão pronta (usado nos testes, sem consultar o Google).
@@ -418,15 +449,17 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
           continue;
         }
         // Portão de nicho: últimos 15 títulos (1 unidade) antes de gastar com a coleta completa.
-        ch.recentTitles = await youtube.getRecentTitles(ch, 15);
-        ch.nicheScore = nicheScore(ch.recentTitles);
-        const gate = nicheGate(ch, ch.recentTitles);
+        const searchTitles = byChannel.get(ch.channelId).map((m) => m.title);
+        const gate = nicheGate(ch, searchTitles, ctx.nicheKeywords);
         if (gate) {
           state.prefiltered.push({ ...entry, reason: gate });
           runStats.prefiltered += 1;
           onProgress('Pré-filtro', `${ch.title}: ${gate.replace('Pre-filter: ', '')}`);
           continue;
         }
+        ch.recentTitles = await youtube.getRecentTitles(ch, 15);
+        ch.nicheScore = nicheScore(ch.recentTitles, ch.description, ctx.nicheKeywords).count;
+        ch.deprioritized = deprioritize(ch, ch.recentTitles, ctx.nicheKeywords);
         survivors.push({ channel: ch, matches: byChannel.get(ch.channelId) });
       }
       state.queue.push(...survivors);
@@ -440,7 +473,7 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
   } finally {
     // Atualiza o resumo para o julgamento, mesmo se o alarme de cota parar no meio.
     const judgedIds = new Set(Object.keys(judgments));
-    const review = buildReview(info, brief, state.creators, { skipIds: judgedIds, prefiltered: state.prefiltered });
+    const review = buildReview(info, brief, state.creators, { skipIds: judgedIds, prefiltered: state.prefiltered, ctx });
     state.meta = {
       ...state.meta,
       searched_at: now.toISOString(),
@@ -478,7 +511,7 @@ async function finalizeRound(dir, options = {}) {
   const judgments = readJudgments(f.judgments);
   if (!fs.existsSync(f.judgments)) throw new Error(`Arquivo não encontrado: ${f.judgments} (julgamentos escritos na sessão).`);
 
-  const ctx = { redAlert: meta.red_alert, window: meta.window };
+  const ctx = roundContext(meta);
   const { missing, invalid } = applyJudgments(creators, judgments, ctx);
   if (missing.length || invalid.length) {
     const lines = [];
@@ -567,7 +600,7 @@ async function messagesBrief(dir, options = {}) {
   const f = round.files(dir);
   const { meta, creators } = round.readJson(f.candidates, 'candidatos (rode "search" antes)');
   const judgments = readJudgments(f.judgments);
-  const ctx = { redAlert: meta.red_alert, window: meta.window };
+  const ctx = roundContext(meta);
   const judged = creators.filter((c) => judgments[c.platforms.youtube.channel_id] || applyRules(c, ctx).fail);
   applyJudgments(judged, judgments, ctx);
   let mondayItems = options.mondayItems || null;
@@ -582,4 +615,4 @@ async function messagesBrief(dir, options = {}) {
   return { file, approved: brief.approved, mondayChecked: Boolean(mondayItems) };
 }
 
-module.exports = { messagesBrief, newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow, countValid, sortQueue };
+module.exports = { roundContext, messagesBrief, newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow, countValid, sortQueue };
