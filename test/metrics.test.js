@@ -81,3 +81,8 @@ test('atividade pelo último upload', () => {
   assert.strictEqual(m.activity(daysAgo(91), NOW).label, 'Inactive');
   assert.strictEqual(m.activity(null, NOW).label, 'Not verified');
 });
+
+test('ratio exibido nunca contradiz o rótulo', () => {
+  assert.strictEqual(m.formatRatio(m.viewsToSubsRatio(9970, 100000)), '9.9% (Acceptable)');
+  assert.strictEqual(m.formatRatio(m.viewsToSubsRatio(2999, 100000)), '2.9% (Weak)');
+});

@@ -34,11 +34,11 @@ O Claude pode rodar todos os comandos sozinho, sem pedir ao Ian para executar.
 
 1. `node src/cli.js new "TEMA" [--round N] [--target N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]`: cria a pasta e o `round.json`.
 2. **Sessão:** o Claude escreve `queries.json` (8 a 15 buscas sobre o assunto, veja o guia abaixo).
-3. `node src/cli.js search "TEMA" [--allow-quota N]`: roda as buscas **em etapas**. Para cada busca: lê os canais, exclui quem já está na planilha do tema, descarta menores que 10K e o **pré-filtro** (marcas e fabricantes, lojas, TV e jornais, governo e institucionais) **antes** de coletar vídeos; depois coleta, calcula métricas e aplica as regras. Cada etapa roda pelo menos uma busca nova antes de consumir a fila, e a fila é ordenada pela faixa preferida do SOP 6.6 (10K a 600K primeiro; gigantes no fim, do menor para o maior) e depois por quantos vídeos o canal teve nas buscas. Para quando há candidatos suficientes para julgar (o dobro dos válidos que faltam), quando as buscas acabam ou quando o alarme de cota dispara. Gera `candidates.json` (estado salvo) e `review.md` (só quem ainda não foi julgado).
+3. `node src/cli.js search "TEMA" [--allow-quota N]`: roda as buscas **em etapas**. Para cada busca: lê os canais, exclui quem já está na planilha do tema **ou no Monday** (SOP 2), descarta menores que 10K e o **pré-filtro** (marcas e fabricantes, lojas, TV e jornais, governo e institucionais) **antes** de coletar vídeos; depois coleta, calcula métricas e aplica as regras. Cada etapa roda pelo menos uma busca nova antes de consumir a fila, e a fila é ordenada pela faixa preferida do SOP 6.6 (10K a 600K primeiro; gigantes no fim, do menor para o maior) e depois por quantos vídeos o canal teve nas buscas. Para quando há candidatos suficientes para julgar (o dobro dos válidos que faltam), quando as buscas acabam ou quando o alarme de cota dispara. Gera `candidates.json` (estado salvo) e `review.md` (só quem ainda não foi julgado).
 4. **Sessão:** o Claude lê o `review.md` e acrescenta os julgamentos no `judgments.json` (sem apagar os anteriores).
 5. Se ainda faltarem creators válidos, repetir 3 e 4: o `search` continua de onde parou, sem repetir busca nem canal.
-6. `node src/cli.js finalize "TEMA"`: valida e junta tudo, gera o CSV e atualiza a planilha do tema no Drive (Fase 5).
-7. **Sessão (Fase 6, só depois do verde da Marie):** o Claude escreve `messages.json` e roda `finalize` de novo.
+6. **Sessão (Fase 6):** para **todo creator Approved** (depois da checagem do Monday), o Claude escreve a mensagem no `messages.json`, seguindo o SOP 12.
+7. `node src/cli.js finalize "TEMA"`: valida e junta tudo, checa Approved e Maybe no Monday, coloca as mensagens, gera o CSV e atualiza a planilha do tema no Drive (Fase 5).
 
 ### Modo de teste (ligado)
 
@@ -94,12 +94,12 @@ O limite do teste é de **resultados, não de buscas**: cada Round entrega **3 c
 - Aplicar os critérios do SOP 8.3 e os critérios extras do `round.json` (`--criteria`).
 - `why` e `niche` em inglês, uma linha, sem travessão. Nunca inventar fatos, nomes, números ou datas.
 
-**`messages.json`** (Fase 6, SOP 12), só para quem está Approved e recebeu verde da Marie:
+**`messages.json`** (Fase 6, SOP 12), para todo creator Approved (o Ian pediu para escrever sempre, sem esperar o verde da Marie):
 
 ```json
 {
   "messages": {
-    "UCxxxxxxxxxxxxxxxxxxxxxx": { "type": "email | dm", "message": "texto completo" }
+    "UCxxxxxxxxxxxxxxxxxxxxxx": { "type": "email | dm", "rotation": { "open_to_ideas": 1, "closing": 1 }, "message": "texto completo" }
   }
 }
 ```
@@ -202,8 +202,8 @@ Decisão do Ian (diverge do SOP 2 e 7.2): a planilha principal antiga (.xlsx) **
 - **As planilhas do tema no Drive** (já feito): quem já está na planilha do tema é excluído da busca.
 - **O board do Monday "Affiliate Partnership Tracking"** (`MONDAY_BOARD_ID`), onde a equipe registra todos os influenciadores contatados. Somente leitura.
 
-1. Checar no Monday **só os creators Approved e Maybe**, no `finalize`, antes de escrever na planilha. Ler o board inteiro (todos os grupos), com paginação via `items_page` e `cursor`.
-2. Comparar com `dedupe.js` (feito): normalização do SOP 7.4, nome, handle, URL e channel ID, e "começa com" para sufixos como "(see notes)".
+1. Checar no Monday **os creators Approved e Maybe**, no `finalize`, antes de escrever na planilha. Ler o board inteiro (todos os grupos), com paginação via `items_page` e `cursor`. O `search` também lê o Monday: quem já está lá é excluído antes da coleta e não conta como válido.
+2. Comparar com `dedupe.js` (feito): normalização do SOP 7.4, nome, handle, URL e channel ID, e "começa com" para sufixos como "(see notes)". O mesmo @ em plataformas diferentes (YouTube, Instagram, TikTok) conta como o mesmo creator.
 3. Encontrou no Monday: status vira `Not approved`, why explica o duplicado, e o `Duplicate Check` usa os textos exatos do SOP 7.5. Não encontrou: `Clear (not on Monday or outreach sheet)`. Sem `MONDAY_TOKEN`: `Monday not checked`.
 4. Colunas escolhidas pelo Ian: **Handle / Contact** (links e @) e **Item** (nome do influenciador; nomes como "Nome / handle" valem também por parte).
 
@@ -216,14 +216,23 @@ Com o julgamento feito na sessão e o login do Google só no computador do Ian, 
 3. A planilha tem três seções, nesta ordem, marcadas por uma linha com o texto na coluna A: **APPROVED**, **MAYBE**, **NOT APPROVED**. Planilhas antigas sem seções ganham os marcadores sem perder nenhuma linha.
 4. Creators novos entram no fim da seção do status deles. Todos os creators que já estão lá ficam, inclusive os reprovados.
 5. Canal que já está na planilha não entra de novo (compara por channel ID, link do YouTube e nome). Os canais da planilha são a lista de exclusão do `search`.
-6. **Nunca apagar linhas e nunca sobrescrever células existentes**: edições à mão do Ian (Supervisor Feedback, notas, status alterado) ficam como estão; uma linha cujo status foi mudado à mão não é movida. Localizar linhas sempre pelo conteúdo (channel ID ou nome), relendo a planilha antes de cada inserção, nunca por número de linha guardado.
+6. **Os dados da planilha ficam sempre atuais** (autorização do Ian): quando um creator que já está na planilha muda (ex.: era Approved e agora consta no Monday), o `finalize` atualiza as células dele e, se o status mudou, **move** a linha para a seção nova (mover, nunca apagar). Proteção das edições à mão: o sistema guarda o último valor que ele mesmo escreveu em cada célula (`output/sheet-state/<id da planilha>.json`, fora do git) e só atualiza uma célula se ela ainda tem esse valor; se o Ian editou, a célula fica e o terminal avisa. **Supervisor Feedback** nunca é tocada. Nunca apagar linhas. Localizar linhas sempre pelo conteúdo (channel ID ou nome), relendo a planilha antes de cada mudança, nunca por número de linha guardado.
 7. Coluna técnica **Channel ID** no fim do template, para localizar cada linha com segurança. Em planilha antiga sem ela, o cabeçalho ganha a coluna numa célula vazia.
 8. O layout vem do template em `src/sheet-template.js` (colunas, larguras, cores), para o Ian ajustar depois. As colunas são preenchidas pelo título do cabeçalho, então mudar a ordem à mão na planilha não quebra nada.
 9. Cores no nome conforme o SOP 9.2: verde aprovado, laranja maybe, vermelho reprovado.
 10. Escrever na planilha principal (bloco do Ian) fica fora do escopo. Não implementar sem eu pedir.
 
-### Fase 6: mensagens
-O Claude escreve na sessão, no `messages.json`, o e-mail ou DM de cada Approved que recebeu verde da Marie, seguindo o SOP 12 (assinatura do Bryce, conteúdo real citado, duas ideias por formato, frases rotativas, Calendly, sem travessão, nome real só se verificado). O `finalize` coloca cada mensagem na coluna Specific Message, ignora quem não está Approved e avisa se faltar o link do Calendly. O sistema nunca envia nada.
+### Fase 6: mensagens (feita)
+**Sempre que houver um creator Approved** (depois da checagem do Monday), o Claude escreve na sessão, no `messages.json`, o e-mail ou DM dele, seguindo o roteiro do SOP 12:
+- Remetente Bryce, MIRA Safety. Em inglês. Sem travessão.
+- Saudação com o primeiro nome real **só se verificado** (ex.: o próprio creator escreve o nome na descrição do canal); senão, o nome do canal. Nunca deduzir pelo e-mail.
+- Citar um conteúdo real (título exato do vídeo) com uma frase curta e verdadeira; nunca inventar detalhes do vídeo além do que o título e o canal mostram.
+- Ligar o produto ao público do creator em meia frase. Duas ideias concretas, adaptadas ao formato (SOP 12.6).
+- Frases "aberto a ideias" e fechamentos em rotação (3 variações cada); registrar a variação usada em `rotation` e usar a próxima na mensagem seguinte.
+- Fechar com pergunta + Calendly: `https://calendly.com/bryce-g-mirasafety/30min`.
+- `type`: `email` se houver e-mail; `dm` se só houver Instagram/TikTok (SOP 5.3).
+
+O `finalize` coloca cada mensagem na coluna Specific Message, ignora quem não está Approved e avisa se faltar o Calendly. Se um Approved deixar de ser Approved (ex.: aparece no Monday), a mensagem não entra. O sistema nunca envia nada.
 
 ### Fase 7: outras plataformas
 TikTok, Instagram e buscas web (`site:substack.com`, `site:rumble.com`) para Rounds Red Alert. Escolher Actors do Apify e me mostrar custo antes.
@@ -247,7 +256,7 @@ Internamente, cada creator segue o formato JSON do SOP seção 17.
 7. Nunca expor chaves ou tokens no frontend, em logs ou em mensagens de erro.
 8. Sem travessão em nenhum texto.
 9. Nunca chamar a API da Anthropic.
-10. Nunca apagar linhas nem sobrescrever células de uma planilha existente no Drive; mesmo tema usa a mesma planilha.
+10. Nunca apagar linhas de uma planilha no Drive; mesmo tema usa a mesma planilha. Atualizar só células que o próprio sistema escreveu e o Ian não editou; nunca tocar em Supervisor Feedback.
 
 ## Custos
 

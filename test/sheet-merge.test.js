@@ -87,3 +87,40 @@ test('linha de creator cujo nome é igual a um marcador não vira marcador', () 
   const { entries } = m.parseSheet(values);
   assert.strictEqual(entries[1].kind, 'creator');
 });
+
+test('planUpdates atualiza só células que o sistema escreveu e o Ian não mexeu', () => {
+  const header = ['Name of Account', 'Status', 'Why', 'Supervisor Feedback', 'YouTube', 'Channel ID'];
+  const id = 'UCaaaaaaaaaaaaaaaaaaaaaa';
+  const values = [
+    header,
+    ['APPROVED'],
+    ['Prepper', 'Approved', 'old why', 'nota da Marie', '', id],
+    ['MAYBE'],
+    ['NOT APPROVED'],
+  ];
+  const c = creator('Prepper', id, 'Not approved');
+  const rowFor = (cr, h) => h.map((t) => ({ 'Name of Account': cr.name, Status: cr.status, Why: 'new why', 'Supervisor Feedback': 'X', 'Channel ID': id }[t] || ''));
+
+  // Sem registro do que o sistema escreveu: não mexe, só reporta.
+  let plan = m.planUpdates(values, [c], {}, rowFor);
+  assert.strictEqual(plan.cells.length, 0);
+  assert.ok(plan.unknown.length > 0);
+
+  // Com registro igual ao atual: atualiza Status e Why, nunca Supervisor Feedback, e pede a mudança de seção.
+  const last = { [id]: { Status: 'Approved', Why: 'old why', YouTube: '' } };
+  plan = m.planUpdates(values, [c], last, rowFor);
+  assert.deepStrictEqual(plan.cells.map((x) => x.column).sort(), ['Status', 'Why']);
+  assert.deepStrictEqual(plan.statusMoves.map((x) => x.to), ['Not approved']);
+
+  // Ian editou o Why à mão: o Why fica, o Status ainda atualiza.
+  plan = m.planUpdates(values, [c], { [id]: { Status: 'Approved', Why: 'texto anterior do sistema' } }, rowFor);
+  assert.deepStrictEqual(plan.cells.map((x) => x.column), ['Status']);
+  assert.deepStrictEqual(plan.manual.map((x) => x.column), ['Why']);
+});
+
+test('findRow acha linha antiga sem Channel ID pelo nome', () => {
+  const values = [HEADER, ['APPROVED'], ['Civilian Tactical', 'Maybe']];
+  const { entries } = m.parseSheet(values);
+  assert.strictEqual(m.findRow(entries, creator('Civilian Tactical', 'UCzzzzzzzzzzzzzzzzzzzzzz')).index, 2);
+  assert.strictEqual(m.findRow(entries, creator('Outro', 'UCyyyyyyyyyyyyyyyyyyyyyy')), null);
+});

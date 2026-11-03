@@ -12,7 +12,8 @@ const youtube = require('./youtube');
 const metrics = require('./metrics');
 const { requireKey, has, hasFile, TEST_MODE } = require('./config');
 const { readAllItems: readMondayItems } = require('./sources/monday');
-const { applyMondayCheck } = require('./duplicates');
+const { applyMondayCheck, mondayEntries } = require('./duplicates');
+const { buildIndex, findMatches } = require('./dedupe');
 const { publishRound, themeSheetKeys } = require('./sources/drive');
 const { applyRules, applyJudgments, sortCreators, removeDashes } = require('./classify');
 const { prefilter } = require('./prefilter');
@@ -205,11 +206,13 @@ function readJudgments(file) {
 }
 
 // Quantos creators já julgados são válidos (Approved ou Maybe), aplicando regras + julgamento.
-function countValid(creators, judgments, ctx) {
+// mondayItems: itens do Monday; quem já está lá não conta como válido.
+function countValid(creators, judgments, ctx, mondayItems = null) {
   const judged = creators
     .filter((c) => judgments[c.platforms.youtube.channel_id])
     .map((c) => JSON.parse(JSON.stringify(c)));
   applyJudgments(judged, judgments, ctx);
+  if (mondayItems) applyMondayCheck(judged, mondayItems);
   return judged.filter((c) => c.status === 'Approved' || c.status === 'Maybe').length;
 }
 
@@ -261,7 +264,11 @@ function sortQueue(queue) {
 function asSheetCreator(channel) {
   return {
     name: channel.title,
-    platforms: { youtube: { channel_id: channel.channelId, handle: channel.handle, url: channelUrl(channel) } },
+    platforms: {
+      youtube: { channel_id: channel.channelId, handle: channel.handle, url: channelUrl(channel) },
+      instagram: { url: null },
+      tiktok: { url: null },
+    },
   };
 }
 
@@ -291,8 +298,19 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
     onProgress('Preparando', 'Sem login no Google: planilha do tema não consultada');
   }
 
+  // Monday (SOP 2): quem a equipe já contatou sai da busca e não conta como válido.
+  // options.mondayItems: itens prontos (testes).
+  let mondayItems = options.mondayItems || null;
+  if (!mondayItems && has('MONDAY_TOKEN') && has('MONDAY_BOARD_ID')) {
+    mondayItems = (await readMondayItems()).items;
+    onProgress('Preparando', `Monday: ${mondayItems.length} influenciadores já registrados (excluídos da busca)`);
+  } else if (!mondayItems) {
+    onProgress('Preparando', 'Sem MONDAY_TOKEN: Monday não consultado');
+  }
+  const mondayIndex = mondayItems ? buildIndex(mondayEntries(mondayItems)) : null;
+
   const judgments = readJudgments(f.judgments);
-  const valid = countValid(state.creators, judgments, ctx);
+  const valid = countValid(state.creators, judgments, ctx, mondayItems);
   const pending = () => state.creators.filter((c) => !judgments[c.platforms.youtube.channel_id] && !applyRules(c, ctx).fail).length;
   const need = Math.max(info.target - valid, 0);
   // Meta da etapa: o dobro do que falta, para ter folga no julgamento.
@@ -300,7 +318,7 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
   onProgress('Preparando', `Válidos: ${valid} de ${info.target}. Aguardando julgamento: ${pending()}. Meta desta etapa: ${goal} para julgar.`);
 
   const save = () => round.writeJson(f.candidates, state);
-  const runStats = { prefiltered: 0, small: 0, excluded: 0, collected: 0 };
+  const runStats = { prefiltered: 0, small: 0, excluded: 0, monday: 0, collected: 0 };
 
   // Coleta os canais da fila até atingir a meta da etapa.
   async function drainQueue() {
@@ -369,6 +387,13 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
         if (isInSheet(asSheetCreator(ch), sheetKeys)) {
           state.excluded.push(entry);
           runStats.excluded += 1;
+          continue;
+        }
+        const onMonday = mondayIndex ? findMatches(asSheetCreator(ch), mondayIndex)[0] : null;
+        if (onMonday) {
+          state.excluded.push({ ...entry, reason: `Monday (${onMonday.detail})` });
+          runStats.monday = (runStats.monday || 0) + 1;
+          onProgress('Monday', `${ch.title}: já está no Monday (${onMonday.detail})`);
           continue;
         }
         if (ch.videoCount === 0 || (!ch.subscribersHidden && ch.subscribers < MIN_SUBSCRIBERS)) {

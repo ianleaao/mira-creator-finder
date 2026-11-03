@@ -109,7 +109,8 @@ function viewsToSubsRatio(avgViews, subscribers) {
 function formatRatio(result) {
   if (!result) return 'Not verified';
   const pct = result.ratio * 100;
-  const shown = pct < 10 ? pct.toFixed(1) : Math.round(pct);
+  // Arredonda para baixo, para o número nunca contradizer o rótulo (9,97% mostra 9.9%, não 10.0%).
+  const shown = pct < 10 ? (Math.floor(pct * 10) / 10).toFixed(1) : Math.floor(pct);
   return `${shown}% (${result.label})`;
 }
 

@@ -120,7 +120,7 @@ async function main() {
     const started = Date.now();
     const { stats, files } = await runSearch(dir, printProgress(), { allowQuota: opts.allowQuota });
     console.log('\n== Resultado desta etapa');
-    console.log(`   Coletados: ${stats.collected} | Pré-filtro: ${stats.prefiltered} | Menores que 10K: ${stats.small} | Já na planilha: ${stats.excluded}`);
+    console.log(`   Coletados: ${stats.collected} | Pré-filtro: ${stats.prefiltered} | Menores que 10K: ${stats.small} | Já na planilha: ${stats.excluded} | Já no Monday: ${stats.monday}`);
     console.log(`   Válidos até agora: ${stats.valid} | Aguardando julgamento: ${stats.toJudge}`);
     console.log(`   Buscas restantes: ${stats.remainingQueries} | Canais na fila: ${stats.queue}`);
     console.log(`   ${files.review}`);
@@ -141,7 +141,24 @@ async function main() {
     if (sheet) {
       console.log(`Planilha ${sheet.created ? 'criada' : 'atualizada'}: ${sheet.folder}/${sheet.name}`);
       console.log(`   Adicionados: ${sheet.added.length}${sheet.added.length ? ` (${sheet.added.map((c) => `${c.name}: ${c.status}`).join('; ')})` : ''}`);
-      if (sheet.skipped.length) console.log(`   Já estavam na planilha (não repetidos): ${sheet.skipped.map((c) => c.name).join('; ')}`);
+      if (sheet.skipped.length) console.log(`   Já estavam na planilha (não repetidos): ${sheet.skipped.length}`);
+      if (sheet.updated.length) {
+        const byName = {};
+        for (const cell of sheet.updated) {
+          const c = sheet.skipped.find((x) => x.platforms.youtube.channel_id === cell.channelId);
+          const name = c ? c.name : cell.channelId;
+          (byName[name] = byName[name] || []).push(cell.column);
+        }
+        console.log(`   Atualizados: ${Object.entries(byName).map(([n, cols]) => `${n} (${cols.join(', ')})`).join('; ')}`);
+      }
+      for (const m of sheet.moved) console.log(`   Movido para ${m.to.toUpperCase()}: ${m.name}`);
+      if (sheet.manual.length) {
+        console.log(`   Não atualizados porque você editou à mão: ${sheet.manual.map((x) => `${x.name} (${x.column})`).join('; ')}`);
+      }
+      if (sheet.unknown.length) {
+        const names = [...new Set(sheet.unknown.map((x) => x.name))];
+        console.log(`   Sem registro do que o sistema escreveu (não atualizados): ${names.join('; ')}`);
+      }
       console.log(`Link: ${sheet.url}`);
     }
   }

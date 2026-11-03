@@ -120,7 +120,61 @@ function sectionInsertAt(entries, status) {
   return Math.max(dataEnd(entries), start + 1);
 }
 
+// Colunas que o sistema nunca atualiza numa linha existente.
+const NEVER_UPDATE = ['name of account', 'supervisor feedback', 'channel id'];
+
+// Linha da planilha que corresponde ao creator: channel ID primeiro; depois link do YouTube e nome.
+function findRow(entries, creator) {
+  const id = creator.platforms.youtube.channel_id;
+  const byId = entries.find((e) => e.kind === 'creator' && e.channelId && e.channelId === id);
+  if (byId) return byId;
+  const keys = new Set(creatorKeys(creator));
+  return entries.find((e) => e.kind === 'creator' && !e.channelId && existingKeysFor(e).some((k) => keys.has(k))) || null;
+}
+
+function existingKeysFor(entry) {
+  return [...existingKeys([entry])];
+}
+
+// Planeja a atualização das linhas que já existem (Ian autorizou: os dados precisam ficar atuais).
+// Regra de proteção: uma célula só é atualizada se ainda tem o último valor que o próprio
+// sistema escreveu (lastWritten); se o Ian editou à mão, fica como está e é reportada.
+// rowsFor(creator) devolve a linha nova no formato do cabeçalho.
+// Devolve { cells: [{ row, col, value }], statusMoves: [{ channelId, to }], manual: [{ name, column }], unknown: [...] }.
+function planUpdates(values, creators, lastWritten, rowFor) {
+  const { header, entries, col } = parseSheet(values);
+  const plan = { cells: [], statusMoves: [], manual: [], unknown: [] };
+  for (const creator of creators) {
+    const entry = findRow(entries, creator);
+    if (!entry) continue;
+    const id = creator.platforms.youtube.channel_id;
+    const last = lastWritten[id];
+    const row = values[entry.index] || [];
+    const fresh = rowFor(creator, header);
+    header.forEach((title, c) => {
+      if (NEVER_UPDATE.includes(String(title || '').trim().toLowerCase())) return;
+      const current = String(row[c] || '');
+      const next = fresh[c];
+      if (current === next) return;
+      if (!last || !(title in last)) {
+        plan.unknown.push({ name: creator.name, column: title });
+        return;
+      }
+      if (current !== last[title]) {
+        plan.manual.push({ name: creator.name, column: title });
+        return;
+      }
+      plan.cells.push({ row: entry.index, col: c, value: next, channelId: id, column: title });
+      if (c === col.status) plan.statusMoves.push({ channelId: id, name: creator.name, to: next });
+    });
+  }
+  return plan;
+}
+
 module.exports = {
+  planUpdates,
+  findRow,
+  NEVER_UPDATE,
   parseSheet,
   existingKeys,
   isInSheet,

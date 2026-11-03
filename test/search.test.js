@@ -64,7 +64,7 @@ test('search para quando tem candidatos suficientes e continua de onde parou', a
   process.env.YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'teste';
 
   // Etapa 1: meta = 3 válidos, nenhum julgado: coleta 6 para julgar e para.
-  const r1 = await runSearch(dir, () => {}, { sheetKeys: new Set(['ytid:UCc2']) });
+  const r1 = await runSearch(dir, () => {}, { sheetKeys: new Set(['ytid:UCc2']), mondayItems: [] });
   assert.strictEqual(r1.stats.toJudge, 6);
   assert.strictEqual(r1.stats.prefiltered, 1);    // KREM 2 News, sem coletar vídeos
   assert.strictEqual(r1.stats.small, 1);          // Tiny Homestead
@@ -85,7 +85,7 @@ test('search para quando tem candidatos suficientes e continua de onde parou', a
   writeJson(f.judgments, { judgments });
 
   const searchesBefore = calls.search.length;
-  const r2 = await runSearch(dir, () => {}, { sheetKeys: new Set(['ytid:UCc2']) });
+  const r2 = await runSearch(dir, () => {}, { sheetKeys: new Set(['ytid:UCc2']), mondayItems: [] });
   assert.strictEqual(r2.stats.valid, 2);
   assert.strictEqual(r2.stats.toJudge, 2);
   assert.ok(calls.search.length > searchesBefore);
@@ -102,7 +102,7 @@ test('search para quando tem candidatos suficientes e continua de onde parou', a
   }
   writeJson(f.judgments, { judgments });
   const before = calls.search.length;
-  const r3 = await runSearch(dir, () => {}, { sheetKeys: new Set() });
+  const r3 = await runSearch(dir, () => {}, { sheetKeys: new Set(), mondayItems: [] });
   assert.strictEqual(r3.stats.need, 0);
   assert.strictEqual(calls.search.length, before);
 
@@ -114,4 +114,31 @@ test('fila de coleta: faixa do SOP primeiro, gigantes no fim', () => {
   const item = (id, subs, matches = 1) => ({ channel: { channelId: id, subscribers: subs, subscribersHidden: false }, matches: Array(matches).fill({}) });
   const q = sortQueue([item('giant', 36000000, 2), item('mid', 80000), item('small', 15000, 2), item('big', 900000)]);
   assert.deepStrictEqual(q.map((x) => x.channel.channelId), ['small', 'mid', 'big', 'giant']);
+});
+
+test('canal que já está no Monday sai da busca antes da coleta', async () => {
+  const calls = stubYoutube();
+  const { dir } = setup();
+  process.env.YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'teste';
+  const mondayItems = [{ name: 'Creator 1', handle: '', group: 'Messaged, but no reply yet' }];
+  const r = await runSearch(dir, () => {}, { sheetKeys: new Set(), mondayItems });
+  assert.strictEqual(r.stats.monday, 1);
+  assert.ok(!calls.videos.includes('UCc1'));
+});
+
+test('countValid desconta quem já está no Monday', () => {
+  const { countValid } = require('../src/pipeline');
+  const { readJson: rj } = require('../src/round');
+  const { dir, f } = setup();
+  return (async () => {
+    stubYoutube();
+    process.env.YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'teste';
+    await runSearch(dir, () => {}, { sheetKeys: new Set(), mondayItems: [] });
+    const state = rj(f.candidates);
+    const judgments = {};
+    for (const c of state.creators) judgments[c.platforms.youtube.channel_id] = { ...JUDGE, channel_type: 'creator', status: 'Approved' };
+    const total = countValid(state.creators, judgments, { redAlert: false }, []);
+    const minusOne = countValid(state.creators, judgments, { redAlert: false }, [{ name: state.creators[0].name, handle: '', group: 'New Leads' }]);
+    assert.strictEqual(minusOne, total - 1);
+  })();
 });

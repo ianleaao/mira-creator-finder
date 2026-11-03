@@ -46,8 +46,13 @@ function buildIndex(entries) {
   for (const entry of entries) {
     for (const link of entry.links || []) {
       for (const id of linkIds(link)) {
-        if (!byId.has(id)) byId.set(id, []);
-        byId.get(id).push(entry);
+        // O mesmo @ em plataformas diferentes (YouTube, Instagram, TikTok) conta como o mesmo creator.
+        const [kind, value] = id.split(':');
+        const keys = kind === 'ytid' ? [id] : [id, `any:${value}`];
+        for (const key of keys) {
+          if (!byId.has(key)) byId.set(key, []);
+          if (!byId.get(key).includes(entry)) byId.get(key).push(entry);
+        }
       }
     }
     const norm = normalizeName(entry.name);
@@ -89,9 +94,10 @@ function findMatches(creator, index) {
     for (const entry of index.byId.get(id) || []) {
       if (!found.has(entry)) found.set(entry, `link (${id.split(':')[0]})`);
     }
-    // Handle de YouTube/IG/TikTok contra handle solto na fonte.
-    const value = id.split(':')[1];
-    for (const entry of index.byId.get(`handle:${value}`) || []) {
+    // Handle de YouTube/IG/TikTok contra o mesmo @ em qualquer plataforma da fonte.
+    const [kind, value] = id.split(':');
+    if (kind === 'ytid') continue;
+    for (const entry of index.byId.get(`any:${value}`) || []) {
       if (!found.has(entry)) found.set(entry, 'handle');
     }
   }

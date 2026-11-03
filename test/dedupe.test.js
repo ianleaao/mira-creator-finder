@@ -59,3 +59,10 @@ test('texto do Duplicate Check segue o SOP 7.5', () => {
   assert.strictEqual(d.duplicateText([{ name: 'x', affiliate: 'paid' }], both), 'Duplicate, already a paid affiliate');
   assert.strictEqual(d.duplicateText([], { monday: false, sheet: true }), 'Clear on outreach sheet, Monday not checked');
 });
+
+test('mesmo @ em plataformas diferentes conta como o mesmo creator', () => {
+  const index = d.buildIndex([{ name: 'Nome no Monday', links: ['https://www.instagram.com/theprairiehomestead/'], source: 'monday' }]);
+  const c = creator('Jill Winger - Old Fashioned on Purpose', { handle: '@theprairiehomestead' });
+  assert.strictEqual(d.findMatches(c, index).length, 1);
+  assert.strictEqual(d.findMatches(creator('Outro', { handle: '@outrocanal' }), index).length, 0);
+});

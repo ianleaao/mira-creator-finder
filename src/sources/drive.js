@@ -210,11 +210,49 @@ async function ensureSections(sheets, spreadsheetId) {
   }
 }
 
-// Junta creators novos na planilha. Devolve { added: [...], skipped: [...] }.
+// O que o sistema escreveu por último em cada linha, por planilha (fora do git).
+// Serve para atualizar só células que o Ian não editou à mão.
+const STATE_DIR = path.join(ROOT, 'output', 'sheet-state');
+
+function readSheetState(spreadsheetId) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(STATE_DIR, `${spreadsheetId}.json`), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeSheetState(spreadsheetId, state) {
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(STATE_DIR, `${spreadsheetId}.json`), JSON.stringify(state, null, 2), 'utf8');
+}
+
+function recordRow(state, creator, header, values) {
+  const id = creator.platforms.youtube.channel_id;
+  state[id] = state[id] || {};
+  header.forEach((title, i) => {
+    if (title) state[id][title] = values[i];
+  });
+}
+
+// Seção (status) em que uma linha está: o marcador mais próximo acima dela.
+function sectionOf(entries, index) {
+  for (let i = index; i >= 0; i--) {
+    if (entries[i].kind === 'marker') return SECTIONS.find((s) => s.label === entries[i].label).status;
+  }
+  return null;
+}
+
+// Junta creators na planilha:
+//  1. linhas que já existem são atualizadas (só células que o sistema escreveu e o Ian não mexeu);
+//     se o status mudou, a linha é movida para a seção nova (sem apagar nada);
+//  2. creators novos entram no fim da seção do status deles.
+// Devolve { added, skipped, updated, moved, manual, unknown }.
 async function mergeIntoSheet(sheets, spreadsheetId, creators) {
   let sheet = await readTab(sheets, spreadsheetId);
   await ensureChannelIdColumn(sheets, spreadsheetId, sheet);
   await ensureSections(sheets, spreadsheetId);
+  const state = readSheetState(spreadsheetId);
 
   sheet = await readTab(sheets, spreadsheetId);
   const keys = merge.existingKeys(merge.parseSheet(sheet.values).entries);
@@ -229,7 +267,45 @@ async function mergeIntoSheet(sheets, spreadsheetId, creators) {
     }
   }
 
-  // De baixo para cima (NOT APPROVED, MAYBE, APPROVED), relendo a cada seção.
+  // 1. Atualiza linhas existentes.
+  const plan = merge.planUpdates(sheet.values, skipped, state, toRowForHeader);
+  if (plan.cells.length) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data: plan.cells.map((cell) => ({
+          range: `${sheet.quoted}!${columnLetter(cell.col)}${cell.row + 1}`,
+          values: [[cell.value]],
+        })),
+      },
+    });
+    for (const cell of plan.cells) {
+      state[cell.channelId] = state[cell.channelId] || {};
+      state[cell.channelId][cell.column] = cell.value;
+    }
+    writeSheetState(spreadsheetId, state);
+  }
+
+  // Status mudou: move a linha para a seção nova (relendo a planilha a cada movimento).
+  const moved = [];
+  for (const move of plan.statusMoves) {
+    const creator = skipped.find((c) => c.platforms.youtube.channel_id === move.channelId);
+    sheet = await readTab(sheets, spreadsheetId);
+    const { entries } = merge.parseSheet(sheet.values);
+    const entry = merge.findRow(entries, creator);
+    if (!entry || !SECTIONS.some((s) => s.status === move.to)) continue;
+    if (sectionOf(entries, entry.index) === move.to) continue;
+    const to = merge.sectionInsertAt(entries, move.to);
+    const finalIndex = to > entry.index ? to - 1 : to;
+    await batch(sheets, spreadsheetId, [
+      { moveDimension: { source: { sheetId: sheet.tab.sheetId, dimension: 'ROWS', startIndex: entry.index, endIndex: entry.index + 1 }, destinationIndex: to } },
+      paintRequest(sheet.tab.sheetId, finalIndex, 1, STATUS_COLORS[move.to]),
+    ]);
+    moved.push({ name: move.name, to: move.to });
+  }
+
+  // 2. Creators novos, de baixo para cima (NOT APPROVED, MAYBE, APPROVED), relendo a cada seção.
   for (const section of [...SECTIONS].reverse()) {
     const group = fresh.filter((c) => c.status === section.status);
     if (!group.length) continue;
@@ -247,8 +323,18 @@ async function mergeIntoSheet(sheets, spreadsheetId, creators) {
       valueInputOption: 'RAW',
       requestBody: { values: rows },
     });
+    group.forEach((c, i) => recordRow(state, c, header, rows[i]));
+    writeSheetState(spreadsheetId, state);
   }
-  return { added: fresh, skipped };
+
+  return {
+    added: fresh,
+    skipped,
+    updated: plan.cells,
+    moved,
+    manual: plan.manual,
+    unknown: plan.unknown,
+  };
 }
 
 // Cria a planilha de um tema novo (cabeçalho, larguras, seções vazias).
@@ -300,15 +386,15 @@ async function publishRound({ theme, round, creators, date = new Date() }) {
   const created = !spreadsheetId;
   if (created) spreadsheetId = await createThemeSheet(drive, sheets, { theme, round, date: date.toISOString().slice(0, 10) });
 
-  const { added, skipped } = await mergeIntoSheet(sheets, spreadsheetId, creators);
+  const result = await mergeIntoSheet(sheets, spreadsheetId, creators);
   const { data } = await drive.files.get({ fileId: spreadsheetId, fields: 'name, webViewLink' });
   return {
     created,
+    spreadsheetId,
     name: data.name,
     url: data.webViewLink,
     folder: `${ROOT_FOLDER_NAME}/${themeFolderName(theme)}`,
-    added,
-    skipped,
+    ...result,
   };
 }
 
