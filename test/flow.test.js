@@ -241,3 +241,9 @@ test('buscas TEMA + NICHO: produto genérico até 1/3, marca concorrente nunca',
   writeJson(file, { queries: tooMany });
   assert.throws(() => loadQueries(file), /4 de 9 buscas; o limite é 1\/3 \(3\)/);
 });
+
+test('niche_score não conta churrasco defumado como nicho', () => {
+  const { nicheScore } = require('../src/niche');
+  assert.strictEqual(nicheScore(['How to Smoke Brisket Hot & Fast on a Drum Smoker', 'Smoked turkey recipe']), 0);
+  assert.strictEqual(nicheScore(['Wildfire smoke day with the kids', 'Smoke season prep list']), 2);
+});

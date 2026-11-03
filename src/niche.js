@@ -10,7 +10,7 @@ const NICHE_TERMS = [
   'food storage', 'stockpile', 'pantry', 'gear', 'tactical', 'edc', 'everyday carry', 'kit', 'first aid', 'trauma',
   'firearm', 'firearms', 'gun', 'guns', 'rifle', 'pistol', 'ammo', 'shooting', 'hunting', 'bushcraft', 'camping', 'outdoors', 'outdoor', 'wilderness',
   'military', 'veteran', 'veterans', 'army', 'marine', 'marines', 'navy', 'soldier',
-  'firefighter', 'firefighting', 'wildland', 'wildfire', 'wildfires', 'fire season', 'smoke', 'evacuation', 'evacuate',
+  'firefighter', 'firefighting', 'wildland', 'wildfire', 'wildfires', 'fire season', 'wildfire smoke', 'smoke season', 'smoke day', 'smoky air', 'evacuation', 'evacuate',
   'air quality', 'gas mask', 'respirator', 'nbc', 'cbrn', 'nuclear', 'fallout', 'radiation', 'pandemic',
   'hurricane', 'flood', 'earthquake', 'tornado', 'storm',
 ];
