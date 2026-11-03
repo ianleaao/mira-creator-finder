@@ -4,6 +4,33 @@ Versão 1.0 | Autor: Ian (com Claude) | Uso: instruções para o sistema automat
 
 Este documento descreve, passo a passo, tudo o que é feito para encontrar, validar, registrar e abordar um criador de conteúdo. Ele foi escrito para que um sistema automatizado (agente de IA, script ou workflow) consiga executar o processo sem errar. Onde há uma regra que veio da supervisora (Marie), isso está marcado como **[Regra Marie]**. Onde é um padrão que adotamos e que pode ser ajustado, está marcado como **[Padrão ajustável]**.
 
+### Nicho MIRA
+
+A MIRA vende proteção respiratória e equipamento de preparação (máscaras de gás, filtros, EPI).
+Queremos creators DO NICHO DA MIRA que falam do tema da Round. Não queremos qualquer pessoa que
+tenha feito um vídeo sobre o tema.
+
+NICHO CENTRAL (conta sozinho):
+preparedness/prepper, survival/bushcraft, tactical/firearms/gear e EDC, militares e
+veteranos, bombeiros e resposta a emergência, CBRN e qualidade do ar,
+notícias e análise de preparação (guerra, apagão, desastres).
+
+NICHO ADJACENTE (só conta se o conteúdo de preparação for recorrente):
+homesteading, off-grid, família, food storage, outdoor/camping, vida rural.
+Regra: o canal adjacente precisa ter pelo menos 5 dos últimos 15 títulos sobre preparação,
+emergência, sobrevivência, kit/bug out bag, apagão ou desastre. Receitas, conservas (canning),
+cozinha, vida doméstica, economia/frugal living, jardinagem, artesanato, rotina de mãe,
+decoração e animais NÃO contam como preparação, mesmo em canal de homestead.
+Exemplo real: Mountain Mama's Home (comida e vida doméstica de família, um vídeo isolado de
+evacuação) = Not approved.
+
+A Round pode liberar um nicho adjacente no brief (ex.: Round 21, Family Preparedness, liberou
+famílias e food storage com gift guide de preparação). Isso vale só para aquela Round.
+
+FORA DO NICHO (reprova mesmo com vídeo do tema): gaming, comédia/skits, música,
+entretenimento geral, viagem/van life sem ângulo de preparação, beleza/moda,
+culinária/receitas, lifestyle de família, reação a celebridades.
+
 ---
 
 ## 0. Visão geral do pipeline
@@ -118,6 +145,9 @@ Descartar sem coletar dados completos se o candidato for:
 | Vende produto concorrente de preparedness | Natural News / Mike Adams |
 | Diz publicamente que não aceita patrocínio | Pinball Preparedness ("não me contate para patrocínios") |
 | Sem ângulo com o tema da Round | Kadenventures (camping, sem ângulo família) |
+| Canal de homestead ou família focado em comida, casa ou rotina, com preparação só ocasional | Mountain Mama's Home |
+| Canal fora do nicho MIRA (gaming, comédia, música, entretenimento, viagem sem preparação), mesmo com um vídeo viral do tema | Markiplier, Dobre Brothers, Sam and Kelly |
+| Divulga marca concorrente de máscara ou respirador | Civilian Tactical (Parcil). Não reprova sozinho; vai no máximo para Maybe e a marca fica anotada |
 
 ---
 
@@ -128,7 +158,7 @@ Descartar sem coletar dados completos se o candidato for:
 | Campo | Onde buscar | Observação |
 |---|---|---|
 | Nome do canal/conta | página do perfil | usar exatamente como aparece |
-| Nome real (primeiro nome) | About do canal, site, créditos, LinkedIn, entrevistas | **só preencher se verificado**. Nunca deduzir pelo e-mail |
+| Nome real (primeiro nome) | Descrição do canal e dos vídeos, About, site, créditos, LinkedIn, entrevistas | **só preencher se verificado**. Nunca deduzir pelo e-mail. Sempre procurar na descrição do canal e dos vídeos ("I'm Ben", "my name is Lilly", "Jara's group"). **[Regra Marie]** |
 | Link de cada plataforma | perfil | YouTube, IG, TikTok, site, Substack |
 | Seguidores/inscritos por plataforma | YouTube (página do canal), Social Blade, vidIQ | se não conseguir confirmar, escrever `Not verified` |
 | Média de views de vídeos longos (YouTube) | aba `/videos` do canal | ver cálculo na seção 6 |
@@ -136,7 +166,7 @@ Descartar sem coletar dados completos se o candidato for:
 | Média de views IG/TikTok | últimos reels/vídeos do perfil ou Social Blade | ver seção 6 |
 | Data do último upload | aba de vídeos | mede atividade |
 | Conteúdo-gatilho | busca + página do vídeo | título exato + link + data |
-| E-mail de contato | About do YouTube, descrição dos vídeos, site, Linktree, página de contato | preferir e-mail comercial |
+| E-mail de contato | Descrição do canal e dos vídeos recentes, site, Linktree, página de contato, About do YouTube | preferir e-mail comercial. Procurar primeiro na descrição do canal e dos vídeos recentes. O e-mail do About fica atrás de captcha; nunca escrever só "YouTube business email" sem procurar nas descrições. **[Regra Marie]** |
 | Melhor método de contato | regra na seção 5.3 | Email ou DM |
 | Já menciona MIRA ou tem link de afiliado? | descrições dos vídeos, Linktree | se tiver código MIRA, é afiliado: reprovar como duplicado |
 | Já trabalha com marcas parecidas? | descrições, storefront Amazon | ponto positivo (aceita parcerias), anotar em Notes |
@@ -240,7 +270,8 @@ Na coluna "Duplicate Check" escrever:
 7. Recusa publicamente patrocínio.
 8. O apresentador original saiu do canal (exemplo real: Iridium242).
 9. Dados centrais impossíveis de verificar (vídeo-gatilho ou data não confirmados).
-10. Sem ligação com o tema da Round.
+10. Sem ligação com o tema OU fora do nicho MIRA. Ligação exige canal do nicho com conteúdo recorrente E vídeo-gatilho sobre o tema. Um vídeo isolado num canal fora do nicho não conta.
+11. Vídeo-gatilho mais velho que o limite da Round (padrão 12 meses; Red Alert usa a janela).
 
 ### 8.2 Critérios de qualidade (para ranquear quem passou)
 | Critério | Peso sugerido |
@@ -248,11 +279,34 @@ Na coluna "Duplicate Check" escrever:
 | Conteúdo-gatilho forte e específico (ex.: gift guide de preparedness, vídeo citando FORTRESS) | Alto |
 | Proporção views/inscritos boa (10% ou mais) | Alto |
 | Postagem recente e frequente | Alto |
-| Audiência compatível com máscaras de gás/filtros (preppers, militares, famílias preparadas) | Alto |
+| Audiência compatível com máscaras de gás/filtros (canal do nicho MIRA, ver abaixo) | Obrigatório |
 | Tem e-mail comercial | Médio |
 | Já faz parcerias com outras marcas (aceita patrocínio) | Médio |
 | Crescimento recente (Social Blade) | Médio |
 | Presença em várias plataformas | Baixo |
+
+**Nicho MIRA** (o que conta como "audiência compatível"):
+
+NICHO CENTRAL (conta sozinho):
+preparedness/prepper, survival/bushcraft, tactical/firearms/gear e EDC, militares e
+veteranos, bombeiros e resposta a emergência, CBRN e qualidade do ar,
+notícias e análise de preparação (guerra, apagão, desastres).
+
+NICHO ADJACENTE (só conta se o conteúdo de preparação for recorrente):
+homesteading, off-grid, família, food storage, outdoor/camping, vida rural.
+Regra: o canal adjacente precisa ter pelo menos 5 dos últimos 15 títulos sobre preparação,
+emergência, sobrevivência, kit/bug out bag, apagão ou desastre. Receitas, conservas (canning),
+cozinha, vida doméstica, economia/frugal living, jardinagem, artesanato, rotina de mãe,
+decoração e animais NÃO contam como preparação, mesmo em canal de homestead.
+Exemplo real: Mountain Mama's Home (comida e vida doméstica de família, um vídeo isolado de
+evacuação) = Not approved.
+
+A Round pode liberar um nicho adjacente no brief (ex.: Round 21, Family Preparedness, liberou
+famílias e food storage com gift guide de preparação). Isso vale só para aquela Round.
+
+FORA DO NICHO (reprova mesmo com vídeo do tema): gaming, comédia/skits, música,
+entretenimento geral, viagem/van life sem ângulo de preparação, beleza/moda,
+culinária/receitas, lifestyle de família, reação a celebridades.
 
 ### 8.3 Critérios específicos por tipo de Round
 - **AI/animação (Round 20)** **[Regra Marie]**: criador tem que narrar (para poder falar dos respiradores); sem ASMR puro; sem edição de filmagem real; sem gaming; sem review de pessoas reais.
@@ -363,6 +417,9 @@ Arquivo: "Potential New Affiliates on Instagram, YouTube and TikTok" (`docs.goog
 - Terminar com pergunta de interesse + link do Calendly: `https://calendly.com/bryce-g-mirasafety/30min`.
 - Variar as frases de fechamento entre mensagens (3 variações em rotação) para não ficarem idênticas.
 - Mensagem em inglês.
+- Apresentação fixa: "At MIRA Safety, we specialize in gas masks, filters, and other personal protective equipment". **[Regra Marie]**
+- Usar "gas masks" ou "respirators", nunca os dois. **[Regra Marie]**
+- Nunca sugerir conteúdo patrocinado ou pago no primeiro contato. **[Regra Marie]**
 
 ### 12.2 Template de E-mail
 ```
@@ -372,7 +429,7 @@ Hey {Nome verificado ou Nome do canal},
 
 Bryce here from MIRA Safety. I recently came across your {video/post} "{título}" and {comentário curto e verdadeiro sobre o conteúdo}.
 
-We make gas masks, respirators, filters and other emergency preparedness gear, {ligação com o público do criador}.
+At MIRA Safety, we specialize in gas masks, filters, and other personal protective equipment, {ligação com o público do criador}.
 
 We'd love to explore a potential collaboration with you! One idea is {ideia 1}. Another is {ideia 2}. {frase "aberto a ideias"}
 
@@ -394,7 +451,7 @@ Fechamentos (rodar):
 
 ### 12.3 Template de DM (Instagram/TikTok)
 ```
-Hey {Nome}! Bryce from MIRA Safety here. I recently came across your {video/post} on {assunto} and {comentário curto}. We make gas masks, respirators, filters and other emergency preparedness gear, and we'd love to explore a potential collaboration with you! One idea is {ideia 1}, and another is {ideia 2}. Would you be interested? If so, here's my calendar: {CAL}
+Hey {Nome}! Bryce from MIRA Safety here. I recently came across your {video/post} on {assunto} and {comentário curto}. At MIRA Safety, we specialize in gas masks, filters, and other personal protective equipment, and we'd love to explore a potential collaboration with you! One idea is {ideia 1}, and another is {ideia 2}. Would you be interested? If so, here's my calendar: {CAL}
 ```
 
 ### 12.4 Exemplo real (e-mail)
@@ -405,9 +462,9 @@ Hey Steve,
 
 Bryce here from MIRA Safety. I recently came across your livestream on the Pentagon preparing for a 90-day grid attack, and I liked how you tied the news back to what your viewers can actually do.
 
-We make gas masks, respirators, filters and other emergency preparedness gear, and your audience already thinks about stocking up for hard times.
+At MIRA Safety, we specialize in gas masks, filters, and other personal protective equipment, and your audience already thinks about stocking up for hard times.
 
-We'd love to explore a potential collaboration with you! One idea is a segment on your stockpile list where gas masks and filters are part of the plan. Another is a sponsored spot in one of your livestreams covering how to choose a gas mask. We're also happy to hear any ideas you have!
+We'd love to explore a potential collaboration with you! One idea is a segment on your stockpile list where gas masks and filters are part of the plan. Another is sending you one of our gas masks to try out and share your honest take with your viewers. We're also happy to hear any ideas you have!
 
 Would you be interested in collaborating with us? If so, feel free to grab a time for a quick chat here: https://calendly.com/bryce-g-mirasafety/30min
 
@@ -427,7 +484,7 @@ Quando a Marie indicar que o criador já é afiliado:
 | Formato do criador | Ideia 1 | Ideia 2 |
 |---|---|---|
 | YouTube review/prepper | review prático de uma máscara | máscara + filtros dentro do kit dele |
-| Live/notícias | segmento patrocinado na live | lista de estoque com máscara e filtros |
+| Live/notícias | enviar uma máscara para ele testar e comentar | lista de estoque com máscara e filtros |
 | Família/homestead | kit de emergência da família com máscara | máscara no gift guide de fim de ano |
 | IG/TikTok | unboxing curto | vídeo "o que tem no meu kit" |
 | Substack/blog/podcast | episódio/artigo sobre proteção respiratória | máscara no checklist de preparedness |
