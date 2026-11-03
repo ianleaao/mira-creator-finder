@@ -52,12 +52,16 @@ Opções do `new` (todas opcionais):
 - `--target`: creators válidos desejados (padrão 20; no modo de teste, 3).
 - `--red-alert`: só vídeos dentro da janela (padrão: últimos 30 dias). Mude com `--from 2026-09-30 --to 2026-10-28`.
 - `--criteria "texto"`: critérios extras da Round (SOP 8.3), ex.: `--criteria "creator must narrate, no gaming"`.
+- `--trigger-age N`: idade máxima do vídeo-gatilho em meses (padrão 12; Red Alert usa a janela). Rounds sazonais podem usar 24.
+- `--allow-niche "a,b"`: libera um nicho adjacente só nesta Round, quando o brief da Marie pedir (ex.: `--allow-niche "family,food storage"`).
 
 **Modo de teste (ligado):** cada Round entrega 3 creators válidos (Approved ou Maybe), usando as 8 a 15 buscas do SOP. O limite fica em `TEST_MODE`, no `src/config.js`, e só sobe quando o sistema for aprovado.
 
 **Alarme de cota:** o `search` para antes de passar de 2.000 unidades do YouTube no dia. Para liberar mais: `node src/cli.js search "TEMA" --allow-quota 4000`.
 
-**Buscas:** sobre o assunto do tema (vlog, experiência, preparação), nunca sobre produto. Buscas com review, best, mask, respirator ou marca são recusadas.
+**Buscas:** cada busca combina o tema com o nicho da MIRA (prepper, survival, homestead, militar, bombeiro, qualidade do ar). Termos como mask, respirator e review são permitidos em até 1/3 das buscas. Nomes de marcas são recusados.
+
+**Quem entra:** só creators do nicho MIRA, com conteúdo de preparação recorrente, que falam do tema da Round. Regras completas no CLAUDE.md ("Encaixe com a MIRA") e no SOP (Nicho MIRA).
 
 ## Login no Google (uma vez)
 
