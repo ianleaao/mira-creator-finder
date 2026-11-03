@@ -124,7 +124,15 @@ function activity(lastUpload, now = new Date()) {
   return { label, days };
 }
 
+// Idade de uma data em meses (para a idade do vídeo-gatilho).
+function monthsSince(dateString, now = new Date()) {
+  if (!dateString) return null;
+  const d = new Date(dateString);
+  return (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth()) - (now.getDate() < d.getDate() ? 1 : 0);
+}
+
 module.exports = {
+  monthsSince,
   parseViews,
   formatCount,
   median,
