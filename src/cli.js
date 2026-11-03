@@ -2,12 +2,13 @@
 // pelo Claude na sessão, lendo e escrevendo arquivos na pasta da Round.
 
 const { reportKeys, redact, TEST_MODE, DAILY_QUOTA_GUARD } = require('./config');
-const { newRound, runSearch, finalizeRound } = require('./pipeline');
+const { newRound, runSearch, finalizeRound, messagesBrief } = require('./pipeline');
 const { findRoundDir } = require('./round');
 
 const HELP = `Uso:
   node src/cli.js new "TEMA" [--round N] [--target N] [--red-alert] [--from AAAA-MM-DD --to AAAA-MM-DD] [--criteria "x"]
   node src/cli.js search "TEMA" [--round N] [--allow-quota N]
+  node src/cli.js messages "TEMA" [--round N]
   node src/cli.js finalize "TEMA" [--round N]
 
 Fluxo:
@@ -16,7 +17,9 @@ Fluxo:
   3. search     pré-filtro, coleta e regras, em etapas: gera candidates.json e review.md
   4. (sessão)   o Claude lê o review.md e escreve judgments.json
   5. se faltarem creators válidos, repetir 3 e 4 (o search continua de onde parou)
-  6. finalize   gera o CSV e atualiza a planilha do tema no Drive (mesmo tema = mesma planilha)
+  6. messages   resumo dos Approved (já checados no Monday) para o Claude escrever as mensagens
+  7. (sessão)   o Claude escreve messages.json (roteiro do Bryce, CLAUDE.md Fase 6)
+  8. finalize   revisa as mensagens, gera o CSV e atualiza a planilha do tema no Drive
 
 Opções do "new" (todas opcionais, só o tema é obrigatório):
   --round N      número da Round (entra no nome da pasta e da planilha)
@@ -48,7 +51,7 @@ function parseArgs(argv) {
     else if (arg.startsWith('--')) throw new Error(`Opção desconhecida: ${arg}`);
     else rest.push(arg);
   }
-  if (!['new', 'search', 'finalize'].includes(opts.command)) {
+  if (!['new', 'search', 'finalize', 'messages'].includes(opts.command)) {
     opts.help = true;
     return opts;
   }
@@ -133,6 +136,15 @@ async function main() {
     return;
   }
 
+  if (opts.command === 'messages') {
+    const { file, approved, mondayChecked } = await messagesBrief(dir);
+    if (!mondayChecked) console.log('Aviso: Monday não consultado (falta MONDAY_TOKEN).');
+    console.log(`Approved: ${approved}`);
+    console.log(`Resumo: ${file}`);
+    console.log('Próximo passo: o Claude escreve as mensagens no messages.json e roda o finalize.');
+    return;
+  }
+
   if (opts.command === 'finalize') {
     const { csvPath, sheet, counts, warnings } = await finalizeRound(dir);
     for (const w of warnings) console.log(`Aviso: ${w}`);
@@ -158,6 +170,11 @@ async function main() {
       if (sheet.unknown.length) {
         const names = [...new Set(sheet.unknown.map((x) => x.name))];
         console.log(`   Sem registro do que o sistema escreveu (não atualizados): ${names.join('; ')}`);
+      }
+      if (sheet.messageCheck) {
+        const mc = sheet.messageCheck;
+        if (mc.ok.length) console.log(`   Mensagens conferidas na linha certa: ${mc.ok.join('; ')}`);
+        for (const p of mc.problems) console.log(`   Aviso, mensagem de ${p.name}: ${p.issue}`);
       }
       console.log(`Link: ${sheet.url}`);
     }

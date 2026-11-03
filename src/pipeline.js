@@ -13,8 +13,9 @@ const metrics = require('./metrics');
 const { requireKey, has, hasFile, TEST_MODE } = require('./config');
 const { readAllItems: readMondayItems } = require('./sources/monday');
 const { applyMondayCheck, mondayEntries } = require('./duplicates');
+const { reviewMessage, buildMessageBrief } = require('./messages');
 const { buildIndex, findMatches } = require('./dedupe');
-const { publishRound, themeSheetKeys } = require('./sources/drive');
+const { publishRound, themeSheetKeys, verifyMessages } = require('./sources/drive');
 const { applyRules, applyJudgments, sortCreators, removeDashes } = require('./classify');
 const { prefilter } = require('./prefilter');
 const { isInSheet } = require('./sheet-merge');
@@ -162,6 +163,8 @@ function buildCreator({ round, channel, collected, matches, now }) {
         query: m.query,
       })),
       recent_titles: collected.longVideos.slice(0, 10).map((v) => v.title),
+      // Descrições dos últimos vídeos: pistas do nome real para as mensagens (roteiro, passo 3).
+      recent_descriptions: collected.longVideos.slice(0, 5).map((v) => String(v.description || '').slice(0, 500)),
     },
   };
 }
@@ -485,9 +488,11 @@ async function finalizeRound(dir, options = {}) {
   const duplicates = applyMondayCheck(creators, mondayItems);
 
   // Mensagens do Bryce (Fase 6), por channel ID. Só entram em quem está Approved.
+  // Revisão do roteiro (passo 9): mensagem com problema não é salva e o finalize para.
   if (fs.existsSync(f.messages)) {
     const data = round.readJson(f.messages, 'mensagens escritas na sessão');
     const messages = data.messages || data;
+    const problems = [];
     for (const c of creators) {
       const m = messages[c.platforms.youtube.channel_id];
       if (!m) continue;
@@ -495,12 +500,18 @@ async function finalizeRound(dir, options = {}) {
         warnings.push(`Mensagem ignorada: ${c.name} não está Approved.`);
         continue;
       }
-      c.message_type = m.type || null;
-      c.message = removeDashes(m.message);
-      if (!c.message.includes('calendly.com/bryce-g-mirasafety/30min')) {
-        warnings.push(`Mensagem de ${c.name} está sem o link do Calendly.`);
+      const issues = reviewMessage(m.message, m.type || 'email');
+      if (issues.length) {
+        problems.push(`${c.name}: ${issues.join('; ')}`);
+        continue;
       }
+      c.message_type = m.type || 'email';
+      c.message = m.message;
     }
+    if (problems.length) throw new Error(`Mensagens reprovadas na revisão (nada foi salvo):\n  - ${problems.join('\n  - ')}`);
+  }
+  for (const c of creators) {
+    if (c.status === 'Approved' && !c.message) warnings.push(`${c.name} está Approved e ainda não tem mensagem (rode "messages" e escreva no messages.json).`);
   }
 
   const sorted = sortCreators(creators);
@@ -510,6 +521,8 @@ async function finalizeRound(dir, options = {}) {
   if (options.sheet !== false) {
     if (hasFile('google-oauth-client.json') && hasFile('token.json')) {
       sheet = await publishRound({ theme: meta.theme, round: meta.round, creators: sorted });
+      // Passo 10: relê a planilha e confere se cada mensagem caiu na linha certa (por channel ID e nome).
+      sheet.messageCheck = await verifyMessages(sheet.spreadsheetId, sorted.filter((c) => c.message));
     } else {
       warnings.push('Planilha no Drive não atualizada: falta o login no Google (veja o README, Login no Google). O CSV foi gerado.');
     }
@@ -533,4 +546,24 @@ async function finalizeRound(dir, options = {}) {
   };
 }
 
-module.exports = { newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow, countValid, sortQueue };
+// Resumo para escrever as mensagens: Approved depois das regras, julgamentos e Monday.
+async function messagesBrief(dir, options = {}) {
+  const f = round.files(dir);
+  const { meta, creators } = round.readJson(f.candidates, 'candidatos (rode "search" antes)');
+  const judgments = readJudgments(f.judgments);
+  const ctx = { redAlert: meta.red_alert, window: meta.window };
+  const judged = creators.filter((c) => judgments[c.platforms.youtube.channel_id] || applyRules(c, ctx).fail);
+  applyJudgments(judged, judgments, ctx);
+  let mondayItems = options.mondayItems || null;
+  if (!mondayItems && options.monday !== false && has('MONDAY_TOKEN') && has('MONDAY_BOARD_ID')) {
+    mondayItems = (await readMondayItems()).items;
+  }
+  applyMondayCheck(judged, mondayItems);
+  const existing = fs.existsSync(f.messages) ? (round.readJson(f.messages, 'mensagens').messages || {}) : {};
+  const brief = buildMessageBrief(meta, judged, existing);
+  const file = path.join(dir, 'messages-brief.md');
+  fs.writeFileSync(file, brief.markdown, 'utf8');
+  return { file, approved: brief.approved, mondayChecked: Boolean(mondayItems) };
+}
+
+module.exports = { messagesBrief, newRound, runSearch, finalizeRound, extractContact, buildCreator, defaultWindow, countValid, sortQueue };

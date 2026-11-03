@@ -38,6 +38,11 @@ node src/cli.js search "PENTAGON"
 Roda as buscas em etapas: exclui quem já está na planilha do tema, descarta marcas, lojas, TV e jornais e governo (pré-filtro) antes de coletar, calcula métricas e aplica as regras. Gera `candidates.json` e `review.md`. **Na sessão**, o Claude lê o `review.md` e escreve o `judgments.json`. Se faltarem creators válidos, rodar `search` de novo: ele continua de onde parou.
 
 ```
+node src/cli.js messages "PENTAGON"
+```
+Gera o `messages-brief.md` com os creators Approved (já checados no Monday). **Na sessão**, o Claude escreve as mensagens do Bryce no `messages.json`, seguindo o roteiro do CLAUDE.md (Fase 6).
+
+```
 node src/cli.js finalize "PENTAGON"
 ```
 Junta tudo, gera o CSV na pasta da Round e atualiza a planilha do tema no Drive (mesmo tema = mesma planilha, com seções APPROVED, MAYBE e NOT APPROVED; nunca apaga linhas nem sobrescreve o que você editou).

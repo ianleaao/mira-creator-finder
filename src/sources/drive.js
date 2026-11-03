@@ -380,6 +380,26 @@ async function createThemeSheet(drive, sheets, { theme, round, date }) {
 }
 
 // Publica a Round: usa a planilha do tema se existir; senão cria uma. Devolve o resumo.
+// Relê a planilha e confere se a mensagem de cada creator está na linha dele
+// (localizada por channel ID ou nome, nunca por número de linha).
+// Devolve { ok: [nomes], problems: [{ name, issue }] }.
+async function verifyMessages(spreadsheetId, creators) {
+  const { sheets } = clients();
+  const sheet = await readTab(sheets, spreadsheetId);
+  const { entries, header } = merge.parseSheet(sheet.values);
+  const col = header.findIndex((h) => String(h || '').trim().toLowerCase() === 'specific message');
+  const result = { ok: [], problems: [] };
+  for (const c of creators) {
+    const entry = merge.findRow(entries, c);
+    if (!entry) result.problems.push({ name: c.name, issue: 'linha não encontrada' });
+    else if (col < 0) result.problems.push({ name: c.name, issue: 'coluna Specific Message não encontrada' });
+    else if (String((sheet.values[entry.index] || [])[col] || '') !== c.message) {
+      result.problems.push({ name: c.name, issue: 'a célula não tem a mensagem (editada à mão ou não atualizada)' });
+    } else result.ok.push(c.name);
+  }
+  return result;
+}
+
 async function publishRound({ theme, round, creators, date = new Date() }) {
   const { drive, sheets } = clients();
   let spreadsheetId = await findThemeSheet(drive, theme);
@@ -408,4 +428,4 @@ async function themeSheetKeys(theme) {
   return { keys: merge.existingKeys(entries), count: entries.filter((e) => e.kind === 'creator').length };
 }
 
-module.exports = { publishRound, themeSheetKeys, sheetBaseName, themeFolderName, uniqueName, columnLetter };
+module.exports = { publishRound, verifyMessages, themeSheetKeys, sheetBaseName, themeFolderName, uniqueName, columnLetter };

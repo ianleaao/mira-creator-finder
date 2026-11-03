@@ -37,8 +37,8 @@ O Claude pode rodar todos os comandos sozinho, sem pedir ao Ian para executar.
 3. `node src/cli.js search "TEMA" [--allow-quota N]`: roda as buscas **em etapas**. Para cada busca: lê os canais, exclui quem já está na planilha do tema **ou no Monday** (SOP 2), descarta menores que 10K e o **pré-filtro** (marcas e fabricantes, lojas, TV e jornais, governo e institucionais) **antes** de coletar vídeos; depois coleta, calcula métricas e aplica as regras. Cada etapa roda pelo menos uma busca nova antes de consumir a fila, e a fila é ordenada pela faixa preferida do SOP 6.6 (10K a 600K primeiro; gigantes no fim, do menor para o maior) e depois por quantos vídeos o canal teve nas buscas. Para quando há candidatos suficientes para julgar (o dobro dos válidos que faltam), quando as buscas acabam ou quando o alarme de cota dispara. Gera `candidates.json` (estado salvo) e `review.md` (só quem ainda não foi julgado).
 4. **Sessão:** o Claude lê o `review.md` e acrescenta os julgamentos no `judgments.json` (sem apagar os anteriores).
 5. Se ainda faltarem creators válidos, repetir 3 e 4: o `search` continua de onde parou, sem repetir busca nem canal.
-6. **Sessão (Fase 6):** para **todo creator Approved** (depois da checagem do Monday), o Claude escreve a mensagem no `messages.json`, seguindo o SOP 12.
-7. `node src/cli.js finalize "TEMA"`: valida e junta tudo, checa Approved e Maybe no Monday, coloca as mensagens, gera o CSV e atualiza a planilha do tema no Drive (Fase 5).
+6. `node src/cli.js messages "TEMA"`: gera o `messages-brief.md` dos Approved (já checados no Monday). **Sessão (Fase 6):** o Claude escreve a mensagem de cada um no `messages.json`, seguindo o roteiro da Fase 6.
+7. `node src/cli.js finalize "TEMA"`: valida e junta tudo, checa Approved e Maybe no Monday, revisa e coloca as mensagens, gera o CSV, atualiza a planilha do tema no Drive (Fase 5) e confere se cada mensagem caiu na linha certa.
 
 ### Modo de teste (ligado)
 
@@ -94,15 +94,7 @@ O limite do teste é de **resultados, não de buscas**: cada Round entrega **3 c
 - Aplicar os critérios do SOP 8.3 e os critérios extras do `round.json` (`--criteria`).
 - `why` e `niche` em inglês, uma linha, sem travessão. Nunca inventar fatos, nomes, números ou datas.
 
-**`messages.json`** (Fase 6, SOP 12), para todo creator Approved (o Ian pediu para escrever sempre, sem esperar o verde da Marie):
-
-```json
-{
-  "messages": {
-    "UCxxxxxxxxxxxxxxxxxxxxxx": { "type": "email | dm", "rotation": { "open_to_ideas": 1, "closing": 1 }, "message": "texto completo" }
-  }
-}
-```
+**`messages.json`**: roteiro e formato na Fase 6.
 
 ## Stack
 
@@ -154,6 +146,7 @@ mira-creator-finder/
     prefilter.js           pré-filtro automático (marca, loja, mídia, governo) antes da coleta
     sheet-merge.js         junção na planilha do tema (seções, sem apagar nem sobrescrever)
     review.js              gera o review.md para o julgamento na sessão
+    messages.js            roteiro das mensagens: pistas de nome, ideias, revisão (passo 8) e messages-brief.md
     dedupe.js              normalização e comparação (SOP 7)
     sheet-template.js      layout da saída (colunas, larguras, cores): edite aqui
     output.js              CSV a partir do template
@@ -222,17 +215,60 @@ Com o julgamento feito na sessão e o login do Google só no computador do Ian, 
 9. Cores no nome conforme o SOP 9.2: verde aprovado, laranja maybe, vermelho reprovado.
 10. Escrever na planilha principal (bloco do Ian) fica fora do escopo. Não implementar sem eu pedir.
 
-### Fase 6: mensagens (feita)
-**Sempre que houver um creator Approved** (depois da checagem do Monday), o Claude escreve na sessão, no `messages.json`, o e-mail ou DM dele, seguindo o roteiro do SOP 12:
-- Remetente Bryce, MIRA Safety. Em inglês. Sem travessão.
-- Saudação com o primeiro nome real **só se verificado** (ex.: o próprio creator escreve o nome na descrição do canal); senão, o nome do canal. Nunca deduzir pelo e-mail.
-- Citar um conteúdo real (título exato do vídeo) com uma frase curta e verdadeira; nunca inventar detalhes do vídeo além do que o título e o canal mostram.
-- Ligar o produto ao público do creator em meia frase. Duas ideias concretas, adaptadas ao formato (SOP 12.6).
-- Frases "aberto a ideias" e fechamentos em rotação (3 variações cada); registrar a variação usada em `rotation` e usar a próxima na mensagem seguinte.
-- Fechar com pergunta + Calendly: `https://calendly.com/bryce-g-mirasafety/30min`.
-- `type`: `email` se houver e-mail; `dm` se só houver Instagram/TikTok (SOP 5.3).
+### Fase 6: mensagens (roteiro do Ian; substitui o SOP 12 onde divergir)
+O Claude escreve na sessão, no `messages.json`, a mensagem de **todo creator Approved** (depois da checagem do Monday). O sistema nunca envia nada.
 
-O `finalize` coloca cada mensagem na coluna Specific Message, ignora quem não está Approved e avisa se faltar o Calendly. Se um Approved deixar de ser Approved (ex.: aparece no Monday), a mensagem não entra. O sistema nunca envia nada.
+**Como rodar:** `node src/cli.js messages "TEMA"` gera o `messages-brief.md` (só Approved, já checados no Monday) com contato, nicho, vídeo do tema, ideia sugerida pelo tipo de creator, pistas de nome e títulos recentes. O Claude escreve o `messages.json` e roda o `finalize`, que revisa, salva e confere.
+
+1. **Confirmar que pode escrever.** Só para quem está **Approved** (verde) na planilha do tema. Not approved (vermelho) não recebe mensagem; a linha fica na planilha (adaptação: o Ian pediu antes para manter os reprovados, não apagar). Sem status definido: esperar.
+2. **Achar o nome real.** Procurar na descrição do canal e na descrição dos últimos vídeos frases como "I'm Ben", "my name is Lilly", "Jara's group" (o `messages-brief.md` lista as pistas com o trecho). Só usar o nome se estiver confirmado no trecho. **Nunca tirar o nome do e-mail.** Sem nome: usar o nome do canal ("Hey Prepper Dawg," ou "Hey Civilian Rifleman team,").
+3. **Escolher o formato.** Por enquanto, **sempre o modelo de e-mail** (os creators vêm só do YouTube). O modelo de DM fica guardado para quando entrarem Instagram e TikTok (Fase 7): aí, quem só tem Instagram ou TikTok recebe DM.
+4. **Escolher o conteúdo específico.** Um vídeo real do creator, de preferência o do tema da Round (título exato), com uma frase curta e verdadeira sobre ele. Não inventar detalhes do vídeo além do que o título e o canal mostram.
+5. **Duas ideias de colaboração**, combinando com o que o creator faz:
+   - quem faz review: um review prático da máscara;
+   - quem tem família ou homestead: a máscara no kit de emergência da família;
+   - quem faz live ou notícias: um segmento sobre o que fazer, ou mandar uma máscara para ele testar;
+   - quem é de Instagram ou TikTok: um unboxing ou um "o que tem no meu kit".
+   **Nunca sugerir conteúdo patrocinado ou pago no primeiro contato** (regra da Marie). Deixar as ideias abertas.
+6. **Montar a mensagem.**
+
+   Modelo de e-mail:
+   ```
+   Subject: Potential Collaboration with MIRA Safety
+
+   Hey {Nome},
+
+   Bryce here from MIRA Safety. I recently came across your video "{título}" and {comentário curto e verdadeiro}.
+
+   At MIRA Safety, we specialize in gas masks, filters, and other personal protective equipment, {ligação com o público dele}.
+
+   We'd love to explore a potential collaboration with you! One idea is {ideia 1}. Another is {ideia 2}. We're also happy to hear any ideas you have!
+
+   {fechamento da rotação}
+
+   Talk soon,
+   Bryce
+   ```
+
+   Modelo de DM (guardado para o futuro):
+   ```
+   Hey {Nome}! Bryce from MIRA Safety here. I recently came across your video on {assunto} and {comentário}. At MIRA Safety, we specialize in gas masks, filters, and other personal protective equipment, and we'd love to explore a potential collaboration with you! One idea is {ideia 1}, and another is {ideia 2}. Would you be interested? If so, here's my calendar: https://calendly.com/bryce-g-mirasafety/30min
+   ```
+7. **Variar o fechamento**, alternando entre os três (o `messages-brief.md` diz qual é o próximo):
+   1. "Would you be interested in collaborating with us? If so, feel free to grab a time for a quick chat here: https://calendly.com/bryce-g-mirasafety/30min"
+   2. "Would you be open to working together? If it sounds good, you can grab a time for a quick call here: https://calendly.com/bryce-g-mirasafety/30min"
+   3. "Is this something you'd be interested in? If so, feel free to book a quick chat here: https://calendly.com/bryce-g-mirasafety/30min"
+8. **Revisar antes de salvar** (o `finalize` confere e recusa a mensagem com problema, sem salvar nada): usar "gas masks" ou "respirators", nunca os dois; sem travessão; sem falar de patrocínio ou pagamento; nome certo; Calendly no final (um dos 3 fechamentos); em inglês; assinada pelo Bryce ("Talk soon, Bryce"); e-mail começa com o Subject do modelo.
+9. **Salvar e conferir.** O `finalize` coloca a mensagem na coluna **Specific Message** da linha do creator na planilha do tema, depois relê a planilha e confere se cada mensagem caiu na linha certa, localizando pelo channel ID ou pelo nome, nunca pelo número da linha.
+
+Formato do `messages.json`:
+```json
+{
+  "messages": {
+    "UCxxxxxxxxxxxxxxxxxxxxxx": { "type": "email", "message": "texto completo" }
+  }
+}
+```
 
 ### Fase 7: outras plataformas
 TikTok, Instagram e buscas web (`site:substack.com`, `site:rumble.com`) para Rounds Red Alert. Escolher Actors do Apify e me mostrar custo antes.

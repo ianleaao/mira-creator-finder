@@ -29,6 +29,23 @@ function makeCreator(id, name, subscribers, email) {
   return buildCreator({ round: 25, channel, collected: { longVideos, shortVideos: [], lastUpload: daysAgo(8), shortsSource: 'playlist' }, matches, now: NOW });
 }
 
+const GOOD_EMAIL = [
+  'Subject: Potential Collaboration with MIRA Safety',
+  '',
+  'Hey Good Prepper team,',
+  '',
+  'Bryce here from MIRA Safety. I recently came across your video "Pentagon FORTRESS 90 days" and liked how practical it was.',
+  '',
+  'At MIRA Safety, we specialize in gas masks, filters, and other personal protective equipment, and your viewers already plan ahead.',
+  '',
+  "We'd love to explore a potential collaboration with you! One idea is showing a gas mask in your family's emergency kit. Another is a hands-on look at how you would use it. We're also happy to hear any ideas you have!",
+  '',
+  'Would you be interested in collaborating with us? If so, feel free to grab a time for a quick chat here: https://calendly.com/bryce-g-mirasafety/30min',
+  '',
+  'Talk soon,',
+  'Bryce',
+].join('\n');
+
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'mira-round-'));
 }
@@ -74,7 +91,7 @@ test('finalize junta julgamentos e mensagens e gera o CSV', async () => {
   });
   writeJson(f.messages, {
     messages: {
-      UCa: { type: 'email', message: 'Hey Good Prepper, ... https://calendly.com/bryce-g-mirasafety/30min' },
+      UCa: { type: 'email', message: GOOD_EMAIL },
       UCc: { type: 'email', message: 'should be ignored' },
     },
   });
@@ -175,4 +192,35 @@ test('pré-filtro pega sigla de emissora em maiúsculas e jornal pela descriçã
   assert.match(prefilter({ title: 'Guardian Australia', description: 'The latest news videos from Guardian Australia.', handle: '' }), /TV station/);
   assert.strictEqual(prefilter({ title: 'Kane Bailey', description: '', handle: '' }), null);
   assert.strictEqual(prefilter({ title: 'KaneBailey', description: '', handle: '' }), null);
+});
+
+test('revisão das mensagens segue o passo 9 do roteiro', () => {
+  const { reviewMessage } = require('../src/messages');
+  assert.deepStrictEqual(reviewMessage(GOOD_EMAIL), []);
+  const both = GOOD_EMAIL.replace('gas masks, filters', 'gas masks, respirators, filters');
+  assert.ok(reviewMessage(both).some((p) => p.includes('juntos')));
+  assert.ok(reviewMessage(GOOD_EMAIL.replace('One idea is', 'One idea is a sponsored video')).some((p) => p.includes('patrocínio')));
+  assert.ok(reviewMessage(GOOD_EMAIL.replace('Talk soon,', 'Thanks,')).length > 0);
+  const dash = GOOD_EMAIL.replace('and liked', String.fromCharCode(0x2014) + ' liked');
+  assert.ok(reviewMessage(dash).includes('tem travessão'));
+});
+
+test('finalize recusa mensagem reprovada na revisão', async () => {
+  const dir = tempDir();
+  const f = files(dir);
+  writeJson(f.candidates, { meta: INFO, creators: [makeCreator('UCa', 'Good Prepper', 50000, 'a@a.com')] });
+  const base = { brand_risk: false, competitor_seller: false, refuses_sponsorships: false, host_left: false,
+    theme_link: true, trigger_index: 0, niche: 'Prepper', confidence: 'high' };
+  writeJson(f.judgments, { judgments: { UCa: { ...base, channel_type: 'creator', status: 'Approved', why: 'ok' } } });
+  writeJson(f.messages, { messages: { UCa: { type: 'email', message: 'Hey, want a sponsored video? https://calendly.com/bryce-g-mirasafety/30min' } } });
+  await assert.rejects(() => finalizeRound(dir, { sheet: false, monday: false }), /reprovadas na revisão/);
+});
+
+test('pistas de nome vêm de frases explícitas, nunca do e-mail', () => {
+  const { nameHints } = require('../src/messages');
+  const hints = nameHints([
+    { source: 'canal', text: "I'm Shayla: wife of 22 years. Business: lilly.j@gmail.com" },
+    { source: 'video', text: 'Hi friends, my name is Ben and this is our farm' },
+  ]);
+  assert.deepStrictEqual(hints.map((h) => h.name), ['Shayla', 'Ben']);
 });
