@@ -69,3 +69,13 @@ test('Not approved não é checado; sem Monday fica "Monday not checked"', () =>
   assert.strictEqual(ok.duplicate_check, 'Monday not checked');
   assert.strictEqual(ok.status, 'Approved');
 });
+
+test('duplicate_of (achado pelo nome real na sessão) marca Duplicate e reprova', () => {
+  const c = creator('Mike Force Podcast', 'Approved');
+  c.duplicate_of = 'Mike Glover (Replied/In Discussion)';
+  const found = applyMondayCheck([c], []);
+  assert.strictEqual(found.length, 1);
+  assert.strictEqual(c.status, 'Not approved');
+  assert.strictEqual(c.duplicate_check, 'Duplicate');
+  assert.match(c.why, /Already on Monday: Mike Glover/);
+});

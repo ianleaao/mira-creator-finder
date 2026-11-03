@@ -36,6 +36,15 @@ function applyMondayCheck(creators, items) {
   const found = [];
   const index = items ? buildIndex(mondayEntries(items)) : null;
   for (const c of creators) {
+    // Duplicado achado na sessão pelo nome real (campo duplicate_of do julgamento).
+    if (c.duplicate_of) {
+      c.duplicate_check = 'Duplicate';
+      if (c.status !== 'Not approved') c.previous_status = c.status;
+      c.status = 'Not approved';
+      c.why = `Already on Monday: ${c.duplicate_of}`;
+      found.push({ name: c.name, mondayName: c.duplicate_of, group: '', how: 'by real name (session)', previous: c.previous_status || '' });
+      continue;
+    }
     if (c.status !== 'Approved' && c.status !== 'Maybe') {
       c.duplicate_check = 'Not checked (not approved)';
       continue;

@@ -260,6 +260,8 @@ function applyJudgments(creators, judgments, ctx) {
     creator.confidence = judgment.confidence;
     creator.notes.push(...result.notes);
     creator.niche_fit = result.nicheFit;
+    // Duplicado achado na sessão pelo nome real (SOP 7.1), que a comparação automática não pega.
+    creator.duplicate_of = typeof judgment.duplicate_of === 'string' ? judgment.duplicate_of.trim() : '';
     creator.niche_score = result.nicheScore ? result.nicheScore.label : null;
     creator.trigger_content = result.trigger
       ? { title: result.trigger.title, url: result.trigger.url, date: result.trigger.date }

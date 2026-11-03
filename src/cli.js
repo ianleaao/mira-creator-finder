@@ -131,7 +131,7 @@ async function main() {
     const started = Date.now();
     const { stats, files } = await runSearch(dir, printProgress(), { allowQuota: opts.allowQuota });
     console.log('\n== Resultado desta etapa');
-    console.log(`   Coletados: ${stats.collected} | Pré-filtro: ${stats.prefiltered} | Menores que 10K: ${stats.small} | Já na planilha: ${stats.excluded} | Já no Monday: ${stats.monday}`);
+    console.log(`   Coletados: ${stats.collected} | Pré-filtro: ${stats.prefiltered} | Menores que 10K: ${stats.small} | Já na planilha: ${stats.excluded} | Já no Monday: ${stats.monday} | Gatilho antigo: ${stats.oldTrigger || 0}`);
     console.log(`   Válidos até agora: ${stats.valid} | Aguardando julgamento: ${stats.toJudge}`);
     console.log(`   Buscas restantes: ${stats.remainingQueries} | Canais na fila: ${stats.queue}`);
     console.log(`   ${files.review}`);

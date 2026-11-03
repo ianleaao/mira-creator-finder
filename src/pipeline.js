@@ -84,6 +84,13 @@ function channelUrl(channel) {
     : `https://www.youtube.com/channel/${channel.channelId}`;
 }
 
+// Últimos uploads no formato [{ title, date }], aceitando também a lista antiga só de títulos.
+function normalizeVideos(list) {
+  return (list || [])
+    .map((v) => (typeof v === 'string' ? { title: v, date: '' } : { title: String((v && v.title) || ''), date: (v && v.date) || '' }))
+    .filter((v) => v.title);
+}
+
 // Monta um creator no formato do SOP 17.
 function buildCreator({ round, channel, collected, matches, now }) {
   const notes = [];
@@ -165,8 +172,9 @@ function buildCreator({ round, channel, collected, matches, now }) {
       })),
       recent_titles: collected.longVideos.slice(0, 10).map((v) => v.title),
       // Nicho (correção dos filtros): últimos 15 títulos, categorias do YouTube e marcas concorrentes citadas.
-      last_videos: channel.recentTitles || [],
-      last_titles: (channel.recentTitles || []).map((v) => v.title),
+      // Canais que ficaram na fila antes da mudança têm só os títulos (texto); os novos, título e data.
+      last_videos: normalizeVideos(channel.recentTitles),
+      last_titles: normalizeVideos(channel.recentTitles).map((v) => v.title),
       topic_categories: topicNames(channel.topicCategories),
       competitor_flags: competitorFlags([
         channel.description,
@@ -360,10 +368,24 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
   const save = () => round.writeJson(f.candidates, state);
   const runStats = { prefiltered: 0, small: 0, excluded: 0, monday: 0, collected: 0 };
 
+  // Data mínima do vídeo-gatilho fora do Red Alert (hoje menos trigger_max_age_months).
+  const minDate = new Date(now);
+  minDate.setMonth(minDate.getMonth() - ctx.triggerMaxAgeMonths);
+  const minTriggerDate = minDate.toISOString().slice(0, 10);
+
   // Coleta os canais da fila até atingir a meta da etapa.
   async function drainQueue() {
     while (state.queue.length && pending() < goal) {
       const { channel, matches } = state.queue.shift();
+      // Fora do Red Alert: se todos os vídeos encontrados são mais velhos que a idade máxima
+      // do gatilho, o canal não teria gatilho válido. Sai sem gastar cota com a coleta.
+      if (!ctx.redAlert && matches.every((m) => m.publishedAt.slice(0, 10) < minTriggerDate)) {
+        state.excluded.push({ channel_id: channel.channelId, name: channel.title, reason: `Trigger older than ${ctx.triggerMaxAgeMonths} months` });
+        runStats.oldTrigger = (runStats.oldTrigger || 0) + 1;
+        onProgress('Gatilho antigo', `${channel.title}: vídeos encontrados com mais de ${ctx.triggerMaxAgeMonths} meses (sem coleta)`);
+        save();
+        continue;
+      }
       let collected;
       try {
         collected = await youtube.getChannelVideos(channel);
@@ -392,8 +414,9 @@ async function runSearch(dir, onProgress = () => {}, options = {}) {
       if (state.queries_done.includes(query)) continue;
 
       onProgress('Buscando no YouTube', `"${query}"`);
+      // Red Alert: só a janela. Fora dele: só vídeos dentro da idade máxima do gatilho.
       const results = await youtube.searchVideos(query, {
-        publishedAfter: info.window ? `${info.window.from}T00:00:00Z` : undefined,
+        publishedAfter: info.window ? `${info.window.from}T00:00:00Z` : `${minTriggerDate}T00:00:00Z`,
         publishedBefore: info.window ? `${info.window.to}T23:59:59Z` : undefined,
       });
 

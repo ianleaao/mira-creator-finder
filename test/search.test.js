@@ -149,3 +149,31 @@ test('countValid desconta quem já está no Monday', () => {
     assert.strictEqual(minusOne, total - 1);
   })();
 });
+
+test('canal da fila antiga (títulos só como texto) mantém os títulos', () => {
+  const { buildCreator } = require('../src/pipeline');
+  const channel = { channelId: 'UCold', title: 'Old Prepper', handle: null, description: '', subscribers: 50000, subscribersHidden: false,
+    recentTitles: ['Bug out bag basics', 'Wildfire smoke prep'] };
+  const collected = { longVideos: [], shortVideos: [], lastUpload: null, shortsSource: 'playlist' };
+  const c = buildCreator({ round: null, channel, collected, matches: [], now: new Date() });
+  assert.deepStrictEqual(c.evidence.last_titles, ['Bug out bag basics', 'Wildfire smoke prep']);
+  assert.deepStrictEqual(c.evidence.last_videos[0], { title: 'Bug out bag basics', date: '' });
+});
+
+test('fora do Red Alert, a busca pede só vídeos recentes e canais com gatilho antigo saem sem coleta', async () => {
+  const calls = stubYoutube();
+  const seen = [];
+  const original = youtube.searchVideos;
+  youtube.searchVideos = async (q, opts) => {
+    seen.push(opts.publishedAfter);
+    const list = await original(q, opts);
+    // Primeiro canal com vídeo de 2020: deve sair sem coleta.
+    return list.map((v, i) => (i === 0 ? { ...v, publishedAt: '2020-01-01T00:00:00Z' } : v));
+  };
+  const { dir } = setup();
+  process.env.YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'teste';
+  const r = await runSearch(dir, () => {}, { sheetKeys: new Set(), mondayItems: [] });
+  assert.ok(seen.every((d) => /^\d{4}-\d{2}-\d{2}T00:00:00Z$/.test(d)), 'publishedAfter sempre definido');
+  assert.ok(r.stats.oldTrigger >= 1);
+  assert.ok(!calls.videos.includes('UCc1'));
+});

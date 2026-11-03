@@ -15,8 +15,10 @@ const RULES = [
     reason: 'TV station, radio or newspaper',
     // Nome: "News", siglas de emissora americana (KREM, WFAA...), "Channel 7", "TV" junto de notícia.
     test: ({ name, rawName, description }) => /\bnews\b/.test(name)
-      // Sigla de emissora americana toda em maiúsculas: KVUE, KREM, WFAA (opcionalmente seguida de cidade ou número).
-      || /^[KW][A-Z]{3}\b/.test(rawName)
+      // "5NEWS", "KSL5News": news grudado num número.
+      || /\d\s?news\b/.test(name)
+      // Sigla de emissora americana toda em maiúsculas: KVUE, KREM, WFAA, WTOL11 (opcionalmente seguida de cidade ou número).
+      || /^[KW][A-Z]{3}(?:\d|\b)/.test(rawName)
       || /\b[kw][a-z]{2,3}\b(?:[\s-]?(?:tv|\d{1,2}))/.test(name)
       || /\b(?:abc|nbc|cbs|fox|cnn|pbs|npr|msnbc|cbc|bbc)(?:\s?\d{1,2}\b|\s(?:news|tv)\b|$)/.test(name)
       || /\b(?:channel|tv)\s?\d{1,2}\b/.test(name)
